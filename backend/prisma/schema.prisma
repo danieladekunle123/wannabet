@@ -1,0 +1,50 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  username  String   @unique
+  createdAt DateTime @default(now())
+
+  passwordHash String
+  wallet    Wallet?
+  matches   Match[]
+}
+
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  balance   Float    @default(0)
+  escrow    Float    @default(0)
+
+  user      User     @relation(fields: [userId], references: [id])
+  ledger    LedgerEntry[]
+}
+
+model LedgerEntry {
+  id        String   @id @default(uuid())
+  walletId  String
+  type      String
+  amount    Float
+  createdAt DateTime @default(now())
+
+  wallet    Wallet   @relation(fields: [walletId], references: [id])
+}
+
+model Match {
+  id        String   @id @default(uuid())
+  game      String
+  stake     Float
+  status    String
+  createdAt DateTime @default(now())
+
+  playerId  String
+  player    User     @relation(fields: [playerId], references: [id])
+}

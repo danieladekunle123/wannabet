@@ -1,0 +1,2378 @@
+openapi: 3.0.3
+info:
+  title: WannaBet? Esports Social Platform API
+  description: |
+    Backend API for WannaBet? - A modern esports social platform featuring 
+    lobbies, tournaments, scrims, wallet integration with escrow, and social features.
+  version: 1.0.0
+  contact:
+    name: WannaBet? API Support
+    email: api@wannabet.gg
+
+servers:
+  - url: https://api.wannabet.gg/v1
+    description: Production server
+  - url: https://staging-api.wannabet.gg/v1
+    description: Staging server
+  - url: http://localhost:3000/v1
+    description: Development server
+
+tags:
+  - name: Authentication
+    description: User authentication and session management
+  - name: Users
+    description: User profile and account management
+  - name: Wallet
+    description: Wallet balance and escrow management
+  - name: Lobbies
+    description: Open lobby management
+  - name: Tournaments
+    description: Tournament creation and participation
+  - name: Scrims
+    description: Scrim matches and team coordination
+  - name: Friends
+    description: Friend connections and management
+  - name: Activity
+    description: Activity feed and notifications
+  - name: Reporting
+    description: User reporting and moderation
+  - name: Onboarding
+    description: User onboarding flow
+  - name: Preferences
+    description: User preferences and settings
+  - name: Trust
+    description: Trust scoring and reputation
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ==================== AUTHENTICATION ====================
+  /auth/google:
+    post:
+      tags:
+        - Authentication
+      summary: Authenticate with Google OAuth
+      description: Initiate Google OAuth flow or exchange code for tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  description: OAuth authorization code from Google
+                redirect_uri:
+                  type: string
+                  description: Redirect URI used in OAuth flow
+              required:
+                - code
+                - redirect_uri
+      responses:
+        '200':
+          description: Successfully authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: Get a new access token using refresh token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+              required:
+                - refresh_token
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Logout user
+      description: Invalidate current session and tokens
+      responses:
+        '204':
+          description: Successfully logged out
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags:
+        - Authentication
+      summary: Get current user
+      description: Retrieve authenticated user's profile
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==================== USERS ====================
+  /users/{userId}:
+    get:
+      tags:
+        - Users
+      summary: Get user profile
+      description: Retrieve public profile information for a specific user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - Users
+      summary: Update user profile
+      description: Update the authenticated user's profile (only own profile)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /users/{userId}/stats:
+    get:
+      tags:
+        - Users
+      summary: Get user statistics
+      description: Retrieve gaming statistics for a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserStats'
+
+  /users/search:
+    get:
+      tags:
+        - Users
+      summary: Search users
+      description: Search for users by username or email
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+
+  # ==================== WALLET ====================
+  /wallet:
+    get:
+      tags:
+        - Wallet
+      summary: Get wallet balance
+      description: Retrieve current user's wallet balance and escrow information
+      responses:
+        '200':
+          description: Wallet information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Wallet'
+
+  /wallet/deposit:
+    post:
+      tags:
+        - Wallet
+      summary: Deposit funds
+      description: Initiate a deposit transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                  format: double
+                  minimum: 5.00
+                payment_method:
+                  type: string
+                  enum: [credit_card, paypal, crypto]
+              required:
+                - amount
+                - payment_method
+      responses:
+        '200':
+          description: Deposit initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+
+  /wallet/withdraw:
+    post:
+      tags:
+        - Wallet
+      summary: Withdraw funds
+      description: Initiate a withdrawal from available balance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                  format: double
+                  minimum: 10.00
+                withdrawal_method:
+                  type: string
+                  enum: [bank_transfer, paypal, crypto]
+                account_details:
+                  type: object
+              required:
+                - amount
+                - withdrawal_method
+                - account_details
+      responses:
+        '200':
+          description: Withdrawal initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+
+  /wallet/transactions:
+    get:
+      tags:
+        - Wallet
+      summary: Get transaction history
+      description: Retrieve wallet transaction history
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [deposit, withdrawal, wager, payout, escrow]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, completed, failed, cancelled]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Transaction history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+                  total:
+                    type: integer
+
+  /wallet/escrow:
+    get:
+      tags:
+        - Wallet
+      summary: Get escrow holdings
+      description: Get all active escrow holdings for current user
+      responses:
+        '200':
+          description: Escrow holdings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  escrows:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Escrow'
+                  total_held:
+                    type: number
+                    format: double
+
+  # ==================== LOBBIES ====================
+  /lobbies:
+    get:
+      tags:
+        - Lobbies
+      summary: Get open lobbies
+      description: Retrieve list of open lobbies with filtering
+      parameters:
+        - name: game
+          in: query
+          schema:
+            type: string
+          description: Filter by game title
+        - name: min_wager
+          in: query
+          schema:
+            type: number
+        - name: max_wager
+          in: query
+          schema:
+            type: number
+        - name: skill_level
+          in: query
+          schema:
+            type: string
+            enum: [beginner, intermediate, advanced, pro]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, in_progress, completed]
+            default: open
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of lobbies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lobbies:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Lobby'
+                  total:
+                    type: integer
+
+    post:
+      tags:
+        - Lobbies
+      summary: Create lobby
+      description: Create a new open lobby
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLobbyRequest'
+      responses:
+        '201':
+          description: Lobby created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lobby'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /lobbies/{lobbyId}:
+    get:
+      tags:
+        - Lobbies
+      summary: Get lobby details
+      description: Retrieve detailed information about a specific lobby
+      parameters:
+        - name: lobbyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lobby details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lobby'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Lobbies
+      summary: Cancel lobby
+      description: Cancel an open lobby (host only)
+      parameters:
+        - name: lobbyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Lobby cancelled
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /lobbies/{lobbyId}/join:
+    post:
+      tags:
+        - Lobbies
+      summary: Join lobby
+      description: Join an open lobby
+      parameters:
+        - name: lobbyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully joined
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lobby'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /lobbies/{lobbyId}/leave:
+    post:
+      tags:
+        - Lobbies
+      summary: Leave lobby
+      description: Leave a lobby before it starts
+      parameters:
+        - name: lobbyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Successfully left lobby
+
+  /lobbies/{lobbyId}/start:
+    post:
+      tags:
+        - Lobbies
+      summary: Start lobby
+      description: Start the lobby match (host only)
+      parameters:
+        - name: lobbyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lobby started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lobby'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /lobbies/{lobbyId}/submit-result:
+    post:
+      tags:
+        - Lobbies
+      summary: Submit match result
+      description: Submit the result of a completed match
+      parameters:
+        - name: lobbyId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchResultRequest'
+      responses:
+        '200':
+          description: Result submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lobby'
+
+  # ==================== TOURNAMENTS ====================
+  /tournaments:
+    get:
+      tags:
+        - Tournaments
+      summary: Get tournaments
+      description: Retrieve list of tournaments
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [upcoming, active, completed]
+        - name: game
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of tournaments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tournaments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tournament'
+                  total:
+                    type: integer
+
+    post:
+      tags:
+        - Tournaments
+      summary: Create tournament
+      description: Create a new tournament
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTournamentRequest'
+      responses:
+        '201':
+          description: Tournament created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tournament'
+
+  /tournaments/{tournamentId}:
+    get:
+      tags:
+        - Tournaments
+      summary: Get tournament details
+      description: Retrieve detailed tournament information including brackets
+      parameters:
+        - name: tournamentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tournament details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tournament'
+
+  /tournaments/{tournamentId}/register:
+    post:
+      tags:
+        - Tournaments
+      summary: Register for tournament
+      description: Register the current user for a tournament
+      parameters:
+        - name: tournamentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                team_id:
+                  type: string
+                  description: Optional team ID for team tournaments
+      responses:
+        '200':
+          description: Successfully registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tournament'
+
+  /tournaments/{tournamentId}/unregister:
+    post:
+      tags:
+        - Tournaments
+      summary: Unregister from tournament
+      description: Remove registration from a tournament
+      parameters:
+        - name: tournamentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Successfully unregistered
+
+  /tournaments/{tournamentId}/bracket:
+    get:
+      tags:
+        - Tournaments
+      summary: Get tournament bracket
+      description: Retrieve the tournament bracket structure
+      parameters:
+        - name: tournamentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tournament bracket
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentBracket'
+
+  /tournaments/{tournamentId}/matches/{matchId}/submit-result:
+    post:
+      tags:
+        - Tournaments
+      summary: Submit tournament match result
+      description: Submit result for a tournament match
+      parameters:
+        - name: tournamentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: matchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchResultRequest'
+      responses:
+        '200':
+          description: Result submitted
+
+  # ==================== SCRIMS ====================
+  /scrims:
+    get:
+      tags:
+        - Scrims
+      summary: Get scrims
+      description: Retrieve list of scheduled scrims
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [scheduled, active, completed]
+        - name: game
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of scrims
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scrims:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Scrim'
+                  total:
+                    type: integer
+
+    post:
+      tags:
+        - Scrims
+      summary: Create scrim
+      description: Schedule a new scrim match
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScrimRequest'
+      responses:
+        '201':
+          description: Scrim created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scrim'
+
+  /scrims/{scrimId}:
+    get:
+      tags:
+        - Scrims
+      summary: Get scrim details
+      description: Retrieve detailed scrim information
+      parameters:
+        - name: scrimId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Scrim details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scrim'
+
+    patch:
+      tags:
+        - Scrims
+      summary: Update scrim
+      description: Update scrim details (organizer only)
+      parameters:
+        - name: scrimId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateScrimRequest'
+      responses:
+        '200':
+          description: Scrim updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scrim'
+
+    delete:
+      tags:
+        - Scrims
+      summary: Cancel scrim
+      description: Cancel a scheduled scrim
+      parameters:
+        - name: scrimId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Scrim cancelled
+
+  /scrims/{scrimId}/accept:
+    post:
+      tags:
+        - Scrims
+      summary: Accept scrim invitation
+      description: Accept an invitation to a scrim
+      parameters:
+        - name: scrimId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Invitation accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scrim'
+
+  /scrims/{scrimId}/decline:
+    post:
+      tags:
+        - Scrims
+      summary: Decline scrim invitation
+      description: Decline an invitation to a scrim
+      parameters:
+        - name: scrimId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Invitation declined
+
+  # ==================== FRIENDS ====================
+  /friends:
+    get:
+      tags:
+        - Friends
+      summary: Get friends list
+      description: Retrieve the current user's friends list
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [accepted, pending, blocked]
+            default: accepted
+      responses:
+        '200':
+          description: Friends list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  friends:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Friend'
+                  total:
+                    type: integer
+
+  /friends/requests:
+    get:
+      tags:
+        - Friends
+      summary: Get friend requests
+      description: Retrieve pending friend requests
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [incoming, outgoing]
+            default: incoming
+      responses:
+        '200':
+          description: Friend requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FriendRequest'
+
+    post:
+      tags:
+        - Friends
+      summary: Send friend request
+      description: Send a friend request to another user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+                message:
+                  type: string
+                  maxLength: 200
+              required:
+                - user_id
+      responses:
+        '201':
+          description: Friend request sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+
+  /friends/requests/{requestId}/accept:
+    post:
+      tags:
+        - Friends
+      summary: Accept friend request
+      description: Accept an incoming friend request
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Friend request accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Friend'
+
+  /friends/requests/{requestId}/decline:
+    post:
+      tags:
+        - Friends
+      summary: Decline friend request
+      description: Decline an incoming friend request
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Friend request declined
+
+  /friends/{friendId}:
+    delete:
+      tags:
+        - Friends
+      summary: Remove friend
+      description: Remove a user from friends list
+      parameters:
+        - name: friendId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Friend removed
+
+  /friends/online:
+    get:
+      tags:
+        - Friends
+      summary: Get online friends
+      description: Retrieve list of currently online friends
+      responses:
+        '200':
+          description: Online friends
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  friends:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OnlineFriend'
+
+  # ==================== ACTIVITY ====================
+  /activity/feed:
+    get:
+      tags:
+        - Activity
+      summary: Get activity feed
+      description: Retrieve personalized activity feed
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [all, friends, tournaments, lobbies]
+            default: all
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Activity feed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  activities:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Activity'
+                  total:
+                    type: integer
+
+  /activity/notifications:
+    get:
+      tags:
+        - Activity
+      summary: Get notifications
+      description: Retrieve user notifications
+      parameters:
+        - name: unread_only
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Notifications list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notifications:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+                  unread_count:
+                    type: integer
+                  total:
+                    type: integer
+
+  /activity/notifications/{notificationId}/read:
+    post:
+      tags:
+        - Activity
+      summary: Mark notification as read
+      description: Mark a specific notification as read
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Notification marked as read
+
+  /activity/notifications/read-all:
+    post:
+      tags:
+        - Activity
+      summary: Mark all notifications as read
+      description: Mark all notifications as read
+      responses:
+        '204':
+          description: All notifications marked as read
+
+  /activity/recent-results:
+    get:
+      tags:
+        - Activity
+      summary: Get recent match results
+      description: Retrieve recent match results for activity rail
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Recent results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MatchResult'
+
+  # ==================== REPORTING ====================
+  /reports:
+    post:
+      tags:
+        - Reporting
+      summary: Report user
+      description: Submit a report for user misconduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+      responses:
+        '201':
+          description: Report submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+
+    get:
+      tags:
+        - Reporting
+      summary: Get user's reports
+      description: Retrieve reports submitted by the current user
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Reports list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reports:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Report'
+                  total:
+                    type: integer
+
+  /reports/{reportId}:
+    get:
+      tags:
+        - Reporting
+      summary: Get report details
+      description: Retrieve details of a specific report
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Report details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+
+  # ==================== ONBOARDING ====================
+  /onboarding/status:
+    get:
+      tags:
+        - Onboarding
+      summary: Get onboarding status
+      description: Retrieve current user's onboarding progress
+      responses:
+        '200':
+          description: Onboarding status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingStatus'
+
+  /onboarding/complete-step:
+    post:
+      tags:
+        - Onboarding
+      summary: Complete onboarding step
+      description: Mark an onboarding step as completed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                step:
+                  type: integer
+                  minimum: 1
+                  maximum: 8
+                data:
+                  type: object
+                  description: Step-specific data
+              required:
+                - step
+      responses:
+        '200':
+          description: Step completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingStatus'
+
+  /onboarding/skip:
+    post:
+      tags:
+        - Onboarding
+      summary: Skip onboarding
+      description: Skip the onboarding process
+      responses:
+        '200':
+          description: Onboarding skipped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingStatus'
+
+  # ==================== PREFERENCES ====================
+  /preferences:
+    get:
+      tags:
+        - Preferences
+      summary: Get user preferences
+      description: Retrieve current user's preferences
+      responses:
+        '200':
+          description: User preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreferences'
+
+    patch:
+      tags:
+        - Preferences
+      summary: Update user preferences
+      description: Update user preferences (theme, notifications, etc.)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePreferencesRequest'
+      responses:
+        '200':
+          description: Preferences updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreferences'
+
+  # ==================== TRUST SCORING ====================
+  /trust/score/{userId}:
+    get:
+      tags:
+        - Trust
+      summary: Get trust score
+      description: Retrieve trust score for a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Trust score
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrustScore'
+
+  /trust/verify-match:
+    post:
+      tags:
+        - Trust
+      summary: Verify match result
+      description: Verify or dispute a match result
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                match_id:
+                  type: string
+                match_type:
+                  type: string
+                  enum: [lobby, tournament, scrim]
+                verification:
+                  type: string
+                  enum: [confirm, dispute]
+                evidence:
+                  type: string
+                  description: Optional evidence URL or description
+              required:
+                - match_id
+                - match_type
+                - verification
+      responses:
+        '200':
+          description: Verification recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verified:
+                    type: boolean
+                  dispute_id:
+                    type: string
+
+  /trust/endorsements/{userId}:
+    post:
+      tags:
+        - Trust
+      summary: Endorse user
+      description: Give a positive endorsement to another user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category:
+                  type: string
+                  enum: [sportsmanship, skill, communication, reliability]
+                comment:
+                  type: string
+                  maxLength: 500
+              required:
+                - category
+      responses:
+        '201':
+          description: Endorsement created
+
+# ==================== COMPONENTS ====================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # Authentication
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          default: Bearer
+        expires_in:
+          type: integer
+          description: Token expiration time in seconds
+        user:
+          $ref: '#/components/schemas/User'
+
+    # User
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+        bio:
+          type: string
+        country:
+          type: string
+        favorite_games:
+          type: array
+          items:
+            type: string
+        trust_score:
+          type: number
+          format: double
+        is_verified:
+          type: boolean
+        is_online:
+          type: boolean
+        last_seen:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserUpdateRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+        bio:
+          type: string
+          maxLength: 500
+        country:
+          type: string
+        favorite_games:
+          type: array
+          items:
+            type: string
+        avatar_url:
+          type: string
+          format: uri
+
+    UserStats:
+      type: object
+      properties:
+        user_id:
+          type: string
+        total_matches:
+          type: integer
+        wins:
+          type: integer
+        losses:
+          type: integer
+        win_rate:
+          type: number
+          format: double
+        total_wagered:
+          type: number
+          format: double
+        total_winnings:
+          type: number
+          format: double
+        net_profit:
+          type: number
+          format: double
+        tournaments_won:
+          type: integer
+        current_streak:
+          type: integer
+        best_streak:
+          type: integer
+        favorite_game:
+          type: string
+        game_stats:
+          type: object
+          additionalProperties:
+            type: object
+
+    # Wallet
+    Wallet:
+      type: object
+      properties:
+        user_id:
+          type: string
+        balance:
+          type: number
+          format: double
+          description: Available balance
+        escrow_balance:
+          type: number
+          format: double
+          description: Amount held in escrow
+        total_balance:
+          type: number
+          format: double
+          description: Total (available + escrow)
+        lifetime_deposited:
+          type: number
+          format: double
+        lifetime_withdrawn:
+          type: number
+          format: double
+        currency:
+          type: string
+          default: USD
+        updated_at:
+          type: string
+          format: date-time
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        type:
+          type: string
+          enum: [deposit, withdrawal, wager, payout, escrow_hold, escrow_release]
+        amount:
+          type: number
+          format: double
+        status:
+          type: string
+          enum: [pending, processing, completed, failed, cancelled]
+        payment_method:
+          type: string
+        reference_id:
+          type: string
+          description: Reference to related lobby/tournament/scrim
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    Escrow:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        amount:
+          type: number
+          format: double
+        type:
+          type: string
+          enum: [lobby, tournament, scrim]
+        reference_id:
+          type: string
+        status:
+          type: string
+          enum: [held, released, refunded]
+        created_at:
+          type: string
+          format: date-time
+        released_at:
+          type: string
+          format: date-time
+
+    # Lobby
+    Lobby:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        game:
+          type: string
+        game_mode:
+          type: string
+        host:
+          $ref: '#/components/schemas/User'
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        max_participants:
+          type: integer
+        wager_amount:
+          type: number
+          format: double
+        entry_fee:
+          type: number
+          format: double
+        prize_pool:
+          type: number
+          format: double
+        skill_level:
+          type: string
+          enum: [beginner, intermediate, advanced, pro]
+        region:
+          type: string
+        rules:
+          type: string
+        status:
+          type: string
+          enum: [open, full, in_progress, completed, cancelled]
+        match_result:
+          $ref: '#/components/schemas/MatchResult'
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    CreateLobbyRequest:
+      type: object
+      required:
+        - title
+        - game
+        - max_participants
+        - wager_amount
+      properties:
+        title:
+          type: string
+        game:
+          type: string
+        game_mode:
+          type: string
+        max_participants:
+          type: integer
+          minimum: 2
+          maximum: 100
+        wager_amount:
+          type: number
+          format: double
+          minimum: 0
+        skill_level:
+          type: string
+          enum: [beginner, intermediate, advanced, pro]
+        region:
+          type: string
+        rules:
+          type: string
+        password:
+          type: string
+          description: Optional password for private lobbies
+
+    # Tournament
+    Tournament:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        game:
+          type: string
+        organizer:
+          $ref: '#/components/schemas/User'
+        format:
+          type: string
+          enum: [single_elimination, double_elimination, round_robin, swiss]
+        max_participants:
+          type: integer
+        current_participants:
+          type: integer
+        entry_fee:
+          type: number
+          format: double
+        prize_pool:
+          type: number
+          format: double
+        prize_distribution:
+          type: object
+          description: Prize distribution by placement
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+        registration_deadline:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [upcoming, registration_open, registration_closed, active, completed, cancelled]
+        rules:
+          type: string
+        region:
+          type: string
+        skill_level:
+          type: string
+          enum: [open, beginner, intermediate, advanced, pro]
+        is_team_tournament:
+          type: boolean
+        team_size:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    CreateTournamentRequest:
+      type: object
+      required:
+        - title
+        - game
+        - format
+        - max_participants
+        - start_date
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        game:
+          type: string
+        format:
+          type: string
+          enum: [single_elimination, double_elimination, round_robin, swiss]
+        max_participants:
+          type: integer
+          minimum: 4
+        entry_fee:
+          type: number
+          format: double
+          minimum: 0
+        start_date:
+          type: string
+          format: date-time
+        registration_deadline:
+          type: string
+          format: date-time
+        rules:
+          type: string
+        region:
+          type: string
+        skill_level:
+          type: string
+          enum: [open, beginner, intermediate, advanced, pro]
+        is_team_tournament:
+          type: boolean
+        team_size:
+          type: integer
+
+    TournamentBracket:
+      type: object
+      properties:
+        tournament_id:
+          type: string
+        format:
+          type: string
+        rounds:
+          type: array
+          items:
+            type: object
+            properties:
+              round_number:
+                type: integer
+              matches:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BracketMatch'
+
+    BracketMatch:
+      type: object
+      properties:
+        id:
+          type: string
+        round:
+          type: integer
+        match_number:
+          type: integer
+        participant1:
+          $ref: '#/components/schemas/User'
+        participant2:
+          $ref: '#/components/schemas/User'
+        winner:
+          $ref: '#/components/schemas/User'
+        score:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_progress, completed, disputed]
+        scheduled_time:
+          type: string
+          format: date-time
+
+    # Scrim
+    Scrim:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        game:
+          type: string
+        organizer:
+          $ref: '#/components/schemas/User'
+        team1:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            members:
+              type: array
+              items:
+                $ref: '#/components/schemas/User'
+        team2:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            members:
+              type: array
+              items:
+                $ref: '#/components/schemas/User'
+        scheduled_time:
+          type: string
+          format: date-time
+        duration_minutes:
+          type: integer
+        server_details:
+          type: object
+          properties:
+            region:
+              type: string
+            server_ip:
+              type: string
+            password:
+              type: string
+        status:
+          type: string
+          enum: [scheduled, confirmed, in_progress, completed, cancelled]
+        notes:
+          type: string
+        match_result:
+          $ref: '#/components/schemas/MatchResult'
+        created_at:
+          type: string
+          format: date-time
+
+    CreateScrimRequest:
+      type: object
+      required:
+        - title
+        - game
+        - team1_id
+        - scheduled_time
+      properties:
+        title:
+          type: string
+        game:
+          type: string
+        team1_id:
+          type: string
+        team2_id:
+          type: string
+          description: Optional, can be filled later
+        scheduled_time:
+          type: string
+          format: date-time
+        duration_minutes:
+          type: integer
+          default: 60
+        server_details:
+          type: object
+        notes:
+          type: string
+
+    UpdateScrimRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        scheduled_time:
+          type: string
+          format: date-time
+        duration_minutes:
+          type: integer
+        server_details:
+          type: object
+        notes:
+          type: string
+
+    # Match Result
+    MatchResult:
+      type: object
+      properties:
+        winner_id:
+          type: string
+        loser_id:
+          type: string
+        score:
+          type: string
+        proof_url:
+          type: string
+          format: uri
+          description: Screenshot or video evidence
+        verified:
+          type: boolean
+        disputed:
+          type: boolean
+        submitted_by:
+          type: string
+        submitted_at:
+          type: string
+          format: date-time
+
+    MatchResultRequest:
+      type: object
+      required:
+        - winner_id
+      properties:
+        winner_id:
+          type: string
+        score:
+          type: string
+        proof_url:
+          type: string
+          format: uri
+
+    # Friends
+    Friend:
+      type: object
+      properties:
+        id:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+        added_at:
+          type: string
+          format: date-time
+
+    FriendRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        from_user:
+          $ref: '#/components/schemas/User'
+        to_user:
+          $ref: '#/components/schemas/User'
+        message:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, declined]
+        created_at:
+          type: string
+          format: date-time
+        responded_at:
+          type: string
+          format: date-time
+
+    OnlineFriend:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        status:
+          type: string
+          enum: [online, in_game, away]
+        current_activity:
+          type: string
+          description: What they're currently doing (e.g., "In a lobby")
+        game:
+          type: string
+
+    # Activity
+    Activity:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [match_completed, tournament_started, friend_online, achievement_earned, level_up]
+        user:
+          $ref: '#/components/schemas/User'
+        title:
+          type: string
+        description:
+          type: string
+        metadata:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [friend_request, lobby_invite, tournament_reminder, match_ready, payment_received, report_update]
+        title:
+          type: string
+        message:
+          type: string
+        action_url:
+          type: string
+        read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    # Reporting
+    CreateReportRequest:
+      type: object
+      required:
+        - reported_user_id
+        - reason
+        - category
+      properties:
+        reported_user_id:
+          type: string
+        category:
+          type: string
+          enum: [cheating, harassment, inappropriate_content, payment_fraud, match_fixing, other]
+        reason:
+          type: string
+          minLength: 20
+          maxLength: 1000
+        evidence_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+        match_reference:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [lobby, tournament, scrim]
+            id:
+              type: string
+
+    Report:
+      type: object
+      properties:
+        id:
+          type: string
+        reporter:
+          $ref: '#/components/schemas/User'
+        reported_user:
+          $ref: '#/components/schemas/User'
+        category:
+          type: string
+        reason:
+          type: string
+        evidence_urls:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [pending, under_review, resolved, dismissed]
+        resolution:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    # Onboarding
+    OnboardingStatus:
+      type: object
+      properties:
+        user_id:
+          type: string
+        current_step:
+          type: integer
+        total_steps:
+          type: integer
+          default: 8
+        completed_steps:
+          type: array
+          items:
+            type: integer
+        is_completed:
+          type: boolean
+        skipped:
+          type: boolean
+        data:
+          type: object
+          description: Data collected during onboarding
+        updated_at:
+          type: string
+          format: date-time
+
+    # Preferences
+    UserPreferences:
+      type: object
+      properties:
+        user_id:
+          type: string
+        theme:
+          type: string
+          enum: [dark, light]
+          default: dark
+        color_scheme:
+          type: string
+          enum: [red, blue, green, purple, orange, yellow]
+          default: red
+        notifications:
+          type: object
+          properties:
+            email_notifications:
+              type: boolean
+            push_notifications:
+              type: boolean
+            friend_requests:
+              type: boolean
+            lobby_invites:
+              type: boolean
+            tournament_updates:
+              type: boolean
+            match_reminders:
+              type: boolean
+            payment_notifications:
+              type: boolean
+        privacy:
+          type: object
+          properties:
+            show_online_status:
+              type: boolean
+            show_match_history:
+              type: boolean
+            allow_friend_requests:
+              type: boolean
+        language:
+          type: string
+          default: en
+        timezone:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+
+    UpdatePreferencesRequest:
+      type: object
+      properties:
+        theme:
+          type: string
+          enum: [dark, light]
+        color_scheme:
+          type: string
+          enum: [red, blue, green, purple, orange, yellow]
+        notifications:
+          type: object
+        privacy:
+          type: object
+        language:
+          type: string
+        timezone:
+          type: string
+
+    # Trust Score
+    TrustScore:
+      type: object
+      properties:
+        user_id:
+          type: string
+        score:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+        level:
+          type: string
+          enum: [new, bronze, silver, gold, platinum, diamond]
+        factors:
+          type: object
+          properties:
+            match_completion_rate:
+              type: number
+            payment_reliability:
+              type: number
+            dispute_rate:
+              type: number
+            endorsements:
+              type: integer
+            account_age_days:
+              type: integer
+            verified_matches:
+              type: integer
+        endorsements:
+          type: array
+          items:
+            type: object
+            properties:
+              from_user:
+                $ref: '#/components/schemas/User'
+              category:
+                type: string
+              comment:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+        last_calculated:
+          type: string
+          format: date-time
+
+    # Error Response
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+
+  responses:
+    BadRequest:
+      description: Bad request - Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Unauthorized - Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Forbidden:
+      description: Forbidden - Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Not found - Resource doesn't exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
