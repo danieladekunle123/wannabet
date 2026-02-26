@@ -14,18 +14,20 @@ model User {
   createdAt DateTime @default(now())
 
   passwordHash String
-  wallet    Wallet?
-  matches   Match[]
+  wallet       Wallet?
+
+  hostedMatches Match[] @relation("HostedMatches")
+  joinedMatches Match[] @relation("JoinedMatches")
 }
 
 model Wallet {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  balance   Float    @default(0)
-  escrow    Float    @default(0)
+  id      String @id @default(uuid())
+  userId  String @unique
+  balance Float  @default(0)
+  escrow  Float  @default(0)
 
-  user      User     @relation(fields: [userId], references: [id])
-  ledger    LedgerEntry[]
+  user   User          @relation(fields: [userId], references: [id])
+  ledger LedgerEntry[]
 }
 
 model LedgerEntry {
@@ -35,7 +37,7 @@ model LedgerEntry {
   amount    Float
   createdAt DateTime @default(now())
 
-  wallet    Wallet   @relation(fields: [walletId], references: [id])
+  wallet Wallet @relation(fields: [walletId], references: [id])
 }
 
 model Match {
@@ -45,6 +47,12 @@ model Match {
   status    String
   createdAt DateTime @default(now())
 
-  playerId  String
-  player    User     @relation(fields: [playerId], references: [id])
+  hostId   String
+  joinerId String?
+
+  reportedWinnerId String?
+  reportedById     String?
+
+  host   User  @relation("HostedMatches", fields: [hostId], references: [id])
+  joiner User? @relation("JoinedMatches", fields: [joinerId], references: [id])
 }
