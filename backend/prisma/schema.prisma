@@ -13,21 +13,64 @@ model User {
   username  String   @unique
   createdAt DateTime @default(now())
 
-  passwordHash String
-  wallet       Wallet?
+  // Auth
+  passwordHash String?      // ⬅ nullable now (Google users won’t have one)
+  googleId     String? @unique
+  avatarUrl    String?
 
+  // Relations
+  wallet       Wallet?
+  profile Profile?
+  playerGames PlayerGame[]
   hostedMatches Match[] @relation("HostedMatches")
   joinedMatches Match[] @relation("JoinedMatches")
+  role Role @default(PLAYER)
+  sentMessages Message[] @relation("SentMessages")
+  receivedMessages Message[] @relation("ReceivedMessages")
+  tournamentEntries TournamentEntry[]
+  teamMemberships TeamMember[]
+  captainOf Team[] @relation("TeamCaptain")
+  raisedDisputes Dispute[]
+}
+
+model Profile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  displayName String?
+  bio       String?
+  country   String?
+  level     Int      @default(1)
+  trustScore Float   @default(100)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PlayerGame {
+  id        String @id @default(uuid())
+  userId    String
+  game      String
+  wins      Int    @default(0)
+  losses    Int    @default(0)
+  hours     Int    @default(0)
+  isPrimary Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, game])
 }
 
 model Wallet {
-  id      String @id @default(uuid())
-  userId  String @unique
-  balance Float  @default(0)
-  escrow  Float  @default(0)
+  id        String   @id @default(uuid())
+  userId    String   @unique
 
-  user   User          @relation(fields: [userId], references: [id])
-  ledger LedgerEntry[]
+  balance   Float    @default(0)
+  escrow    Float    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger  LedgerEntry[]
 }
 
 model LedgerEntry {
@@ -37,7 +80,7 @@ model LedgerEntry {
   amount    Float
   createdAt DateTime @default(now())
 
-  wallet Wallet @relation(fields: [walletId], references: [id])
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 }
 
 model Match {
@@ -55,4 +98,83 @@ model Match {
 
   host   User  @relation("HostedMatches", fields: [hostId], references: [id])
   joiner User? @relation("JoinedMatches", fields: [joinerId], references: [id])
+  disputes Dispute[]
+}
+
+model Tournament {
+  id        String   @id @default(uuid())
+  name      String
+  description String?
+  game      String
+  entryFee  Float    @default(0)
+  status    String   @default("draft")
+  startAt   DateTime?
+  createdAt DateTime @default(now())
+
+  participants TournamentEntry[]
+}
+
+model TournamentEntry {
+  id           String   @id @default(uuid())
+  tournamentId String
+  userId       String
+  joinedAt     DateTime @default(now())
+  paid         Boolean  @default(false)
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+}
+
+model Team {
+  id        String   @id @default(uuid())
+  name      String
+  captainId String?
+  createdAt DateTime @default(now())
+
+  members TeamMember[]
+  captain User? @relation("TeamCaptain", fields: [captainId], references: [id])
+}
+
+model TeamMember {
+  id       String   @id @default(uuid())
+  teamId   String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  senderId   String
+  receiverId String?
+  channelId  String?
+  content    String
+  createdAt  DateTime @default(now())
+
+  sender   User @relation("SentMessages", fields: [senderId], references: [id])
+  receiver User? @relation("ReceivedMessages", fields: [receiverId], references: [id])
+}
+
+model Dispute {
+  id          String   @id @default(uuid())
+  matchId     String
+  disputantId String
+  evidence    String?
+  status      String   @default("open")
+  createdAt   DateTime @default(now())
+
+  match    Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  disputant User  @relation(fields: [disputantId], references: [id], onDelete: Cascade)
+}
+
+enum Role {
+  PLAYER
+  MODERATOR
+  ADMIN
 }

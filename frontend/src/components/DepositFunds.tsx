@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import api from '../lib/api';
+import { useAuth } from './AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -36,6 +38,7 @@ interface DepositFundsProps {
 export function DepositFunds({ onNavigate }: DepositFundsProps) {
   const [step, setStep] = useState(1); // 1: Amount, 2: Payment Method, 3: Confirmation, 4: Success
   const [amount, setAmount] = useState('');
+  const { refreshUser } = useAuth();
   const [customAmount, setCustomAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('credit-card');
   const [agreeToTerms, setAgreeToTerms] = useState(false);
@@ -620,7 +623,17 @@ export function DepositFunds({ onNavigate }: DepositFundsProps) {
             </Button>
             <Button
               size="lg"
-              onClick={() => setStep(4)}
+              onClick={async () => {
+                try {
+                  const amt = parseFloat(amount || '0');
+                  await api.deposit(amt);
+                  await refreshUser();
+                  setStep(4);
+                } catch (err: any) {
+                  console.error(err);
+                  // TODO: show error to user
+                }
+              }}
               className="bg-primary hover:bg-primary/90 text-primary-foreground min-w-[200px]"
             >
               <Lock className="h-4 w-4 mr-2" />

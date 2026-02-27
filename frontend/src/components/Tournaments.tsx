@@ -1,3 +1,72 @@
+import React, { useEffect, useState } from 'react';
+import api from '../lib/api';
+import { Button } from './ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { useAuth } from './AuthContext';
+
+interface TournamentsProps {
+  onNavigate?: (tab: string) => void;
+  showSeeAll?: boolean;
+}
+
+export function Tournaments({ onNavigate, showSeeAll }: TournamentsProps = {}) {
+  const [tournaments, setTournaments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const { refreshUser } = useAuth();
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await api.getTournaments();
+      setTournaments(data.tournaments || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleJoin = async (id: string) => {
+    try {
+      await api.joinTournament(id);
+      await refreshUser?.();
+      load();
+      alert('Joined tournament');
+    } catch (err: any) {
+      alert(err?.message || 'Failed to join');
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold">Tournaments</h2>
+      {loading && <div>Loading...</div>}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {tournaments.map((t) => (
+          <Card key={t.id}>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span>{t.name}</span>
+                <span className="text-sm text-muted-foreground">{t.game}</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-2">{t.description}</p>
+              <div className="flex items-center justify-between">
+                <div className="text-sm">Entry: ${t.entryFee}</div>
+                <Button onClick={() => handleJoin(t.id)} size="sm">Join</Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default Tournaments;
 import React from 'react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';

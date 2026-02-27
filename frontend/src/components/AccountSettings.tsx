@@ -1,15 +1,43 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Badge } from './ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { Separator } from './ui/separator';
-import { Switch } from './ui/switch';
-import { User, Mail, Phone, Calendar, MapPin, Shield, Edit2, Camera, Check, X, Sun, Moon, Palette, Link2, Gamepad2, MessageSquare, Twitch, Youtube, Twitter, ArrowLeft } from 'lucide-react';
-import { ImageWithFallback } from './figma/ImageWithFallback';
-import { useTheme } from './ThemeContext';
+import React, { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Badge } from "./ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { Separator } from "./ui/separator";
+import { Switch } from "./ui/switch";
+import {
+  User,
+  Mail,
+  Phone,
+  Calendar,
+  MapPin,
+  Shield,
+  Edit2,
+  Camera,
+  Check,
+  X,
+  Sun,
+  Moon,
+  Palette,
+  Link2,
+  Gamepad2,
+  MessageSquare,
+  Twitch,
+  Youtube,
+  Twitter,
+  ArrowLeft,
+} from "lucide-react";
+import { ImageWithFallback } from "./figma/ImageWithFallback";
+import { useTheme } from "./ThemeContext";
+import { useAuth } from "./AuthContext";
 
 interface AccountSettingsProps {
   onNavigate?: (tab: string) => void;
@@ -18,23 +46,48 @@ interface AccountSettingsProps {
 export function AccountSettings({ onNavigate }: AccountSettingsProps) {
   const { mode, color, setMode, setColor } = useTheme();
   const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState({
-    username: 'EliteGamer',
-    displayName: 'Elite Gamer',
-    email: 'elite.gamer@wannabet.com',
-    phone: '+1 (555) 123-4567',
-    country: 'United States',
-    bio: 'Professional esports competitor | CS2 & Valorant | Top 100 Global',
-  });
+  const { user, refreshUser } = useAuth();
+
+  const [formData, setFormData] = useState(() => ({
+    username: user?.username ?? "",
+    displayName: user?.profile?.displayName ?? user?.username ?? "",
+    email: user?.email ?? "",
+    phone: "",
+    country: "",
+    bio: "",
+  }));
 
   const handleSave = () => {
-    setIsEditing(false);
-    // Save logic here
+    (async () => {
+      try {
+        // update username/display name on account
+        await import("../lib/api").then((m) =>
+          m.updateMyAccount({ username: formData.username, displayName: formData.displayName })
+        );
+
+        // update profile fields like bio/country
+        await import("../lib/api").then((m) => m.updateMyProfile({ bio: formData.bio, country: formData.country }));
+
+        // refresh global user
+        await refreshUser();
+        setIsEditing(false);
+      } catch (err: any) {
+        console.error(err);
+        // TODO: show user-facing error
+      }
+    })();
   };
 
   const handleCancel = () => {
     setIsEditing(false);
-    // Reset form data
+    setFormData({
+      username: user?.username ?? "",
+      displayName: user?.profile?.displayName ?? user?.username ?? "",
+      email: user?.email ?? "",
+      phone: "",
+      country: "",
+      bio: "",
+    });
   };
 
   return (
@@ -44,7 +97,7 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => onNavigate?.('settings')}
+          onClick={() => onNavigate?.("settings")}
           className="hover:bg-primary/10 hover:text-primary"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -83,9 +136,13 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
           <div className="flex items-center space-x-4">
             <div className="relative">
               <Avatar className="h-24 w-24 border-2 border-primary/50">
-                <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
-                  EG
-                </AvatarFallback>
+                {user?.avatarUrl ? (
+                  <AvatarImage src={user.avatarUrl} />
+                ) : (
+                  <AvatarFallback>
+                    {user?.username.slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                )}
               </Avatar>
               {isEditing && (
                 <Button
@@ -104,7 +161,9 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                   Verified
                 </Badge>
               </div>
-              <p className="text-sm text-muted-foreground">@{formData.username}</p>
+              <p className="text-sm text-muted-foreground">
+                @{formData.username}
+              </p>
               <p className="text-xs text-muted-foreground mt-1">
                 Member since January 2024
               </p>
@@ -120,7 +179,9 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
               <Input
                 id="username"
                 value={formData.username}
-                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, username: e.target.value })
+                }
                 disabled={!isEditing}
                 className="bg-input-background"
               />
@@ -134,7 +195,9 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
               <Input
                 id="displayName"
                 value={formData.displayName}
-                onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, displayName: e.target.value })
+                }
                 disabled={!isEditing}
                 className="bg-input-background"
               />
@@ -148,7 +211,10 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                   id="email"
                   type="email"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  disabled
+                  onChange={(e) =>
+                    setFormData({ ...formData, email: e.target.value })
+                  }
                   disabled={!isEditing}
                   className="pl-10 bg-input-background"
                 />
@@ -163,7 +229,9 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                   id="phone"
                   type="tel"
                   value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, phone: e.target.value })
+                  }
                   disabled={!isEditing}
                   className="pl-10 bg-input-background"
                 />
@@ -177,7 +245,9 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                 <Input
                   id="country"
                   value={formData.country}
-                  onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, country: e.target.value })
+                  }
                   disabled={!isEditing}
                   className="pl-10 bg-input-background"
                 />
@@ -190,7 +260,9 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
             <textarea
               id="bio"
               value={formData.bio}
-              onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, bio: e.target.value })
+              }
               disabled={!isEditing}
               className="w-full min-h-[100px] px-3 py-2 rounded-md border border-input bg-input-background text-foreground resize-none"
               maxLength={200}
@@ -240,20 +312,24 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
             <Label>Appearance Mode</Label>
             <div className="grid grid-cols-2 gap-3">
               <button
-                onClick={() => setMode('light')}
+                onClick={() => setMode("light")}
                 className={`relative p-4 rounded-lg border-2 transition-all duration-300 hover:scale-105 ${
-                  mode === 'light'
-                    ? 'border-primary bg-primary/10 shadow-lg shadow-primary/20'
-                    : 'border-border bg-muted/30 hover:border-primary/50'
+                  mode === "light"
+                    ? "border-primary bg-primary/10 shadow-lg shadow-primary/20"
+                    : "border-border bg-muted/30 hover:border-primary/50"
                 }`}
               >
                 <div className="flex flex-col items-center space-y-2">
-                  <Sun className={`h-6 w-6 ${mode === 'light' ? 'text-primary' : 'text-muted-foreground'}`} />
-                  <span className={`text-sm font-medium ${mode === 'light' ? 'text-primary' : 'text-foreground'}`}>
+                  <Sun
+                    className={`h-6 w-6 ${mode === "light" ? "text-primary" : "text-muted-foreground"}`}
+                  />
+                  <span
+                    className={`text-sm font-medium ${mode === "light" ? "text-primary" : "text-foreground"}`}
+                  >
                     Light Mode
                   </span>
                 </div>
-                {mode === 'light' && (
+                {mode === "light" && (
                   <div className="absolute top-2 right-2">
                     <Check className="h-4 w-4 text-primary" />
                   </div>
@@ -261,20 +337,24 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
               </button>
 
               <button
-                onClick={() => setMode('dark')}
+                onClick={() => setMode("dark")}
                 className={`relative p-4 rounded-lg border-2 transition-all duration-300 hover:scale-105 ${
-                  mode === 'dark'
-                    ? 'border-primary bg-primary/10 shadow-lg shadow-primary/20'
-                    : 'border-border bg-muted/30 hover:border-primary/50'
+                  mode === "dark"
+                    ? "border-primary bg-primary/10 shadow-lg shadow-primary/20"
+                    : "border-border bg-muted/30 hover:border-primary/50"
                 }`}
               >
                 <div className="flex flex-col items-center space-y-2">
-                  <Moon className={`h-6 w-6 ${mode === 'dark' ? 'text-primary' : 'text-muted-foreground'}`} />
-                  <span className={`text-sm font-medium ${mode === 'dark' ? 'text-primary' : 'text-foreground'}`}>
+                  <Moon
+                    className={`h-6 w-6 ${mode === "dark" ? "text-primary" : "text-muted-foreground"}`}
+                  />
+                  <span
+                    className={`text-sm font-medium ${mode === "dark" ? "text-primary" : "text-foreground"}`}
+                  >
                     Dark Mode
                   </span>
                 </div>
-                {mode === 'dark' && (
+                {mode === "dark" && (
                   <div className="absolute top-2 right-2">
                     <Check className="h-4 w-4 text-primary" />
                   </div>
@@ -289,27 +369,29 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
           <div className="space-y-3">
             <Label>Accent Color</Label>
             <p className="text-sm text-muted-foreground">
-              Choose your preferred accent color for buttons, links, and highlights
+              Choose your preferred accent color for buttons, links, and
+              highlights
             </p>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
               {[
-                { name: 'red', label: 'Red', color: '#E50914' },
-                { name: 'orange', label: 'Orange', color: '#FF8C00' },
-                { name: 'green', label: 'Green', color: '#10B981' },
-                { name: 'blue', label: 'Blue', color: '#3B82F6' },
-                { name: 'purple', label: 'Purple', color: '#A855F7' },
-                { name: 'pink', label: 'Pink', color: '#EC4899' },
+                { name: "red", label: "Red", color: "#E50914" },
+                { name: "orange", label: "Orange", color: "#FF8C00" },
+                { name: "green", label: "Green", color: "#10B981" },
+                { name: "blue", label: "Blue", color: "#3B82F6" },
+                { name: "purple", label: "Purple", color: "#A855F7" },
+                { name: "pink", label: "Pink", color: "#EC4899" },
               ].map((theme) => (
                 <button
                   key={theme.name}
                   onClick={() => setColor(theme.name as any)}
                   className={`relative p-4 rounded-lg border-2 transition-all duration-300 hover:scale-110 ${
                     color === theme.name
-                      ? 'border-primary shadow-lg'
-                      : 'border-border hover:border-muted-foreground'
+                      ? "border-primary shadow-lg"
+                      : "border-border hover:border-muted-foreground"
                   }`}
                   style={{
-                    backgroundColor: color === theme.name ? `${theme.color}15` : 'transparent',
+                    backgroundColor:
+                      color === theme.name ? `${theme.color}15` : "transparent",
                   }}
                 >
                   <div className="flex flex-col items-center space-y-2">
@@ -317,7 +399,8 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                       className="w-8 h-8 rounded-full ring-2 ring-offset-2 ring-offset-background"
                       style={{
                         backgroundColor: theme.color,
-                        ringColor: color === theme.name ? theme.color : 'transparent',
+                        ringColor:
+                          color === theme.name ? theme.color : "transparent",
                       }}
                     />
                     <span className="text-xs font-medium text-foreground">
@@ -353,11 +436,41 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
             <Label>Gaming Platforms</Label>
             <div className="space-y-3">
               {[
-                { name: 'Steam', icon: Gamepad2, connected: true, username: 'EliteGamer2024', color: '#171a21' },
-                { name: 'Epic Games', icon: Gamepad2, connected: true, username: 'EliteGamer', color: '#2a2a2a' },
-                { name: 'Battle.net', icon: Gamepad2, connected: false, username: null, color: '#148eff' },
-                { name: 'Xbox Live', icon: Gamepad2, connected: false, username: null, color: '#107c10' },
-                { name: 'PlayStation', icon: Gamepad2, connected: false, username: null, color: '#003791' },
+                {
+                  name: "Steam",
+                  icon: Gamepad2,
+                  connected: true,
+                  username: "EliteGamer2024",
+                  color: "#171a21",
+                },
+                {
+                  name: "Epic Games",
+                  icon: Gamepad2,
+                  connected: true,
+                  username: "EliteGamer",
+                  color: "#2a2a2a",
+                },
+                {
+                  name: "Battle.net",
+                  icon: Gamepad2,
+                  connected: false,
+                  username: null,
+                  color: "#148eff",
+                },
+                {
+                  name: "Xbox Live",
+                  icon: Gamepad2,
+                  connected: false,
+                  username: null,
+                  color: "#107c10",
+                },
+                {
+                  name: "PlayStation",
+                  icon: Gamepad2,
+                  connected: false,
+                  username: null,
+                  color: "#003791",
+                },
               ].map((platform) => (
                 <div
                   key={platform.name}
@@ -368,11 +481,16 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                       className="w-10 h-10 rounded-lg flex items-center justify-center"
                       style={{ backgroundColor: `${platform.color}20` }}
                     >
-                      <platform.icon className="h-5 w-5" style={{ color: platform.color }} />
+                      <platform.icon
+                        className="h-5 w-5"
+                        style={{ color: platform.color }}
+                      />
                     </div>
                     <div>
                       <div className="flex items-center space-x-2">
-                        <h4 className="font-medium text-foreground">{platform.name}</h4>
+                        <h4 className="font-medium text-foreground">
+                          {platform.name}
+                        </h4>
                         {platform.connected && (
                           <Badge className="bg-emerald-600 text-white text-xs">
                             <Check className="h-3 w-3 mr-1" />
@@ -381,9 +499,13 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                         )}
                       </div>
                       {platform.connected ? (
-                        <p className="text-sm text-muted-foreground">{platform.username}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {platform.username}
+                        </p>
                       ) : (
-                        <p className="text-sm text-muted-foreground">Not connected</p>
+                        <p className="text-sm text-muted-foreground">
+                          Not connected
+                        </p>
                       )}
                     </div>
                   </div>
@@ -415,10 +537,34 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
             <Label>Social Media</Label>
             <div className="space-y-3">
               {[
-                { name: 'Discord', icon: MessageSquare, connected: true, username: 'EliteGamer#1234', color: '#5865f2' },
-                { name: 'Twitch', icon: Twitch, connected: true, username: 'EliteGamerTV', color: '#9146ff' },
-                { name: 'YouTube', icon: Youtube, connected: false, username: null, color: '#ff0000' },
-                { name: 'Twitter', icon: Twitter, connected: false, username: null, color: '#1da1f2' },
+                {
+                  name: "Discord",
+                  icon: MessageSquare,
+                  connected: true,
+                  username: "EliteGamer#1234",
+                  color: "#5865f2",
+                },
+                {
+                  name: "Twitch",
+                  icon: Twitch,
+                  connected: true,
+                  username: "EliteGamerTV",
+                  color: "#9146ff",
+                },
+                {
+                  name: "YouTube",
+                  icon: Youtube,
+                  connected: false,
+                  username: null,
+                  color: "#ff0000",
+                },
+                {
+                  name: "Twitter",
+                  icon: Twitter,
+                  connected: false,
+                  username: null,
+                  color: "#1da1f2",
+                },
               ].map((social) => (
                 <div
                   key={social.name}
@@ -429,11 +575,16 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                       className="w-10 h-10 rounded-lg flex items-center justify-center"
                       style={{ backgroundColor: `${social.color}20` }}
                     >
-                      <social.icon className="h-5 w-5" style={{ color: social.color }} />
+                      <social.icon
+                        className="h-5 w-5"
+                        style={{ color: social.color }}
+                      />
                     </div>
                     <div>
                       <div className="flex items-center space-x-2">
-                        <h4 className="font-medium text-foreground">{social.name}</h4>
+                        <h4 className="font-medium text-foreground">
+                          {social.name}
+                        </h4>
                         {social.connected && (
                           <Badge className="bg-emerald-600 text-white text-xs">
                             <Check className="h-3 w-3 mr-1" />
@@ -442,9 +593,13 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                         )}
                       </div>
                       {social.connected ? (
-                        <p className="text-sm text-muted-foreground">{social.username}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {social.username}
+                        </p>
                       ) : (
-                        <p className="text-sm text-muted-foreground">Not connected</p>
+                        <p className="text-sm text-muted-foreground">
+                          Not connected
+                        </p>
                       )}
                     </div>
                   </div>
@@ -539,7 +694,9 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
         <CardContent className="space-y-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 border border-amber-500/30 rounded-lg bg-amber-500/5">
             <div className="flex-1">
-              <h4 className="font-medium text-foreground mb-1">Deactivate Account</h4>
+              <h4 className="font-medium text-foreground mb-1">
+                Deactivate Account
+              </h4>
               <p className="text-sm text-muted-foreground mb-2">
                 Temporarily disable your account. You can reactivate anytime.
               </p>
@@ -549,10 +706,10 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                 <li>• All data preserved for your return</li>
               </ul>
             </div>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               className="border-amber-500/50 text-amber-500 hover:bg-amber-500/10 shrink-0"
-              onClick={() => onNavigate?.('deactivate-account')}
+              onClick={() => onNavigate?.("deactivate-account")}
             >
               Deactivate
             </Button>
@@ -560,9 +717,12 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
 
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 border border-destructive/30 rounded-lg bg-destructive/5">
             <div className="flex-1">
-              <h4 className="font-medium text-foreground mb-1">Delete Account</h4>
+              <h4 className="font-medium text-foreground mb-1">
+                Delete Account
+              </h4>
               <p className="text-sm text-muted-foreground mb-2">
-                Permanently delete your account and all data. This cannot be undone.
+                Permanently delete your account and all data. This cannot be
+                undone.
               </p>
               <ul className="text-xs text-destructive space-y-0.5">
                 <li>• All data permanently deleted</li>
@@ -570,10 +730,10 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                 <li>• Irreversible action</li>
               </ul>
             </div>
-            <Button 
-              variant="destructive" 
+            <Button
+              variant="destructive"
               className="bg-destructive hover:bg-destructive/90 shrink-0"
-              onClick={() => onNavigate?.('delete-account')}
+              onClick={() => onNavigate?.("delete-account")}
             >
               Delete
             </Button>

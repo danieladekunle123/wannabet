@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useAuth } from './AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -50,6 +51,15 @@ interface PlayerStatsProps {
 export function PlayerStats({ onNavigate }: PlayerStatsProps = {}) {
   const [selectedPeriod, setSelectedPeriod] = useState('30d');
   const [isTransitioning, setIsTransitioning] = useState(false);
+
+  const { user } = useAuth();
+  const displayName = user?.profile?.displayName ?? user?.username ?? 'You';
+  const initials = displayName
+    .split(' ')
+    .map((s) => s[0] ?? '')
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
 
   // Handle period change with transition
   const handlePeriodChange = (period: string) => {
@@ -346,11 +356,11 @@ export function PlayerStats({ onNavigate }: PlayerStatsProps = {}) {
         <CardContent className="p-6">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-center space-x-4">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-amber-500 flex items-center justify-center">
-                <span className="text-3xl font-bold text-white">YH</span>
+                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-amber-500 flex items-center justify-center">
+                <span className="text-3xl font-bold text-white">{initials}</span>
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-foreground">YouAreHere</h1>
+                <h1 className="text-3xl font-bold text-foreground">{displayName}</h1>
                 <div className="flex items-center space-x-2 mt-1">
                   <Badge className="bg-primary text-primary-foreground">
                     <Shield className="h-3 w-3 mr-1" />

@@ -33,6 +33,15 @@ export async function registerUser(input: {
           balance: 0,
         },
       },
+      profile: {
+        create: {
+          displayName: input.username,
+          bio: '',
+          country: null,
+          level: 1,
+          trustScore: 100,
+        },
+      },
     },
     select: {
       id: true,
@@ -80,4 +89,35 @@ export async function loginUser(input: { email: string; password: string }) {
       createdAt: user.createdAt,
     },
   };
+}
+
+export async function loginOrRegisterGoogleUser({
+  email,
+  username,
+  googleId,
+  avatarUrl,
+}: {
+  email: string;
+  username: string;
+  googleId: string;
+  avatarUrl?: string;
+}) {
+  let user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        email,
+        username,
+        googleId,
+        avatarUrl,
+        wallet: { create: {} },
+        profile: { create: { displayName: username, bio: '', country: null, level: 1, trustScore: 100 } },
+      },
+    });
+  }
+
+  const token = signJwt({ userId: user.id });
+
+  return { token, user };
 }

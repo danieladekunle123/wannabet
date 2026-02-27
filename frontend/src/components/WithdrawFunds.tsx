@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import api from '../lib/api';
+import { useAuth } from './AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -45,6 +47,8 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
   const currentBalance = 2450;
   const inEscrow = 500;
   const availableBalance = currentBalance - inEscrow;
+
+  const { refreshUser } = useAuth();
 
   const quickAmounts = [100, 250, 500, 1000, 1950]; // Max is available balance
 
@@ -773,7 +777,17 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
             </Button>
             <Button
               size="lg"
-              onClick={() => setStep(5)}
+              onClick={async () => {
+                try {
+                  const amt = parseFloat(amount || '0');
+                  await api.withdraw(amt);
+                  await refreshUser();
+                  setStep(5);
+                } catch (err: any) {
+                  console.error(err);
+                  // TODO: show user-facing error
+                }
+              }}
               className="bg-primary hover:bg-primary/90 text-primary-foreground min-w-[200px]"
             >
               <Lock className="h-4 w-4 mr-2" />

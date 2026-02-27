@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import api from '../lib/api';
+import { useAuth } from './AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -43,6 +45,8 @@ export function CreateMatch({ onNavigate, initialTab = 'tournament' }: CreateMat
   const [mmrRequired, setMMRRequired] = useState([1500]);
   const [requireEscrow, setRequireEscrow] = useState(true);
   const [privateMatch, setPrivateMatch] = useState(false);
+
+  const { refreshUser } = useAuth();
 
   const games = [
     { id: 'cs2', name: 'Counter-Strike 2', icon: '🎯' },
@@ -521,6 +525,23 @@ export function CreateMatch({ onNavigate, initialTab = 'tournament' }: CreateMat
               <Button 
                 className="bg-primary hover:bg-primary/90 text-primary-foreground flex-1 sm:flex-none"
                 disabled={!selectedGame}
+                onClick={async () => {
+                  try {
+                    const stake = matchType === 'scrim' ? 0 : entryFee[0];
+                    const res = await api.createMatch({ game: selectedGame, stake });
+                    // refresh global user to update balances
+                    await refreshUser?.();
+                    // navigate to view the newly created match
+                    if (res?.match?.id) {
+                      onNavigate(`view-match-${res.match.id}`);
+                    } else {
+                      onNavigate('view-match');
+                    }
+                  } catch (err) {
+                    console.error('Failed to create match', err);
+                    // TODO: show user-facing error
+                  }
+                }}
               >
                 <Flag className="h-4 w-4 mr-2" />
                 Create Match

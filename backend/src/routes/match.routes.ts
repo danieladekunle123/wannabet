@@ -16,12 +16,15 @@ matchRouter.post("/", requireAuth, async (req, res) => {
     const { game, stake } = CreateMatchSchema.parse(req.body);
     const userId = req.user!.userId;
 
-    const wallet = await prisma.wallet.findUnique({
+    // Ensure wallet exists for user (create if missing). If created with zero balance
+    // the subsequent balance check will return a clear 'Insufficient balance' error.
+    const wallet = await prisma.wallet.upsert({
       where: { userId },
+      create: { userId, balance: 0, escrow: 0 },
+      update: {},
       select: { id: true, balance: true, escrow: true },
     });
 
-    if (!wallet) return res.status(404).json({ message: "Wallet not found" });
     if (wallet.balance < stake) {
       return res.status(400).json({ message: "Insufficient balance" });
     }

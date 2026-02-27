@@ -54,6 +54,65 @@ walletRouter.post("/deposit", requireAuth, async (req, res) => {
   }
 });
 
+// GET /wallet  -> current user's wallet summary
+walletRouter.get("/", requireAuth, async (req, res) => {
+  const userId = req.user!.userId;
+
+  const wallet = await prisma.wallet.findUnique({
+    where: { userId },
+    select: { id: true, balance: true, escrow: true },
+  });
+
+  if (!wallet) return res.status(404).json({ message: "Wallet not found" });
+
+  return res.json({ wallet });
+});
+
+// POST /wallet/withdraw
+const WithdrawSchema = z.object({
+  amount: z.number().positive().max(100000),
+});
+
+walletRouter.post("/withdraw", requireAuth, async (req, res) => {
+  try {
+    const { amount } = WithdrawSchema.parse(req.body);
+    const userId = req.user!.userId;
+
+    const wallet = await prisma.wallet.findUnique({
+      where: { userId },
+      select: { id: true, balance: true, escrow: true },
+    });
+
+    if (!wallet) return res.status(404).json({ message: "Wallet not found" });
+
+    if (wallet.balance < amount) {
+      return res.status(400).json({ message: "Insufficient balance" });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const updatedWallet = await tx.wallet.update({
+        where: { id: wallet.id },
+        data: { balance: { decrement: amount } },
+        select: { id: true, balance: true, escrow: true },
+      });
+
+      const entry = await tx.ledgerEntry.create({
+        data: {
+          walletId: wallet.id,
+          type: "WITHDRAW",
+          amount: -Math.abs(amount),
+        },
+      });
+
+      return { updatedWallet, entry };
+    });
+
+    return res.status(201).json({ wallet: result.updatedWallet, ledgerEntry: result.entry });
+  } catch (err: any) {
+    return res.status(400).json({ message: err.message ?? "Bad request" });
+  }
+});
+
 walletRouter.post("/escrow/lock", requireAuth, async (req, res) => {
   try {
     const { amount } = LockSchema.parse(req.body);

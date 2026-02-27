@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import api from '../lib/api';
+import { useAuth } from './AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -11,19 +13,50 @@ interface WalletEscrowProps {
 
 export function WalletEscrow({ onNavigate }: WalletEscrowProps) {
 
-  const transactions = [
-    { id: 1, type: 'win', amount: 250, game: 'CS2 5v5', date: '2 hours ago', status: 'completed' },
-    { id: 2, type: 'deposit', amount: 500, method: 'Credit Card', date: '1 day ago', status: 'completed' },
-    { id: 3, type: 'loss', amount: 100, game: 'Valorant Ranked', date: '2 days ago', status: 'completed' },
-    { id: 4, type: 'withdraw', amount: 300, method: 'PayPal', date: '3 days ago', status: 'pending' },
-    { id: 5, type: 'win', amount: 150, game: 'Tournament Entry', date: '4 days ago', status: 'completed' },
-  ];
+  const [balance, setBalance] = useState<number>(0);
+  const [escrow, setEscrow] = useState<number>(0);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [escrowMatches, setEscrowMatches] = useState<any[]>([]);
+  const { refreshUser } = useAuth();
 
-  const escrowMatches = [
-    { id: 1, game: 'CS2 Competitive', amount: 200, opponent: 'ProGamer123', status: 'active', time: '15m remaining' },
-    { id: 2, game: 'Valorant 1v1', amount: 150, opponent: 'SniperElite', status: 'active', time: '8m remaining' },
-    { id: 3, game: 'Tournament Entry', amount: 150, event: 'Weekend Masters', status: 'locked', time: 'Starts in 2h' },
-  ];
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        const w = await api.getMyWallet();
+        if (!mounted) return;
+        setBalance(w.wallet.balance ?? 0);
+        setEscrow(w.wallet.escrow ?? 0);
+
+        const ledger = await api.getMyLedger();
+        if (!mounted) return;
+        const mapped = (ledger.entries || []).map((e: any) => ({
+          id: e.id,
+          type: e.type.toLowerCase(),
+          amount: Math.abs(e.amount),
+          rawAmount: e.amount,
+          date: new Date(e.createdAt).toLocaleString(),
+          status: e.type === 'WITHDRAW' ? 'processing' : 'completed',
+        }));
+        setTransactions(mapped);
+
+        // derive simple escrow matches from ESCROW_LOCK entries
+        const escrowItems = (ledger.entries || []).filter((e: any) => e.type === 'ESCROW_LOCK').map((e: any, idx: number) => ({
+          id: e.id,
+          game: 'Match #' + (idx + 1),
+          amount: e.amount,
+          opponent: '',
+          status: 'active',
+          time: 'Pending',
+        }));
+        setEscrowMatches(escrowItems);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    load();
+    return () => { mounted = false; };
+  }, [refreshUser]);
 
   return (
     <div className="space-y-6 animate-fadeInUp">
@@ -66,8 +99,8 @@ export function WalletEscrow({ onNavigate }: WalletEscrowProps) {
             <CardTitle className="text-sm font-medium text-muted-foreground">Available Balance</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-bold text-emerald-400">$2,450</span>
+              <div className="flex items-baseline space-x-2">
+              <span className="text-3xl font-bold text-emerald-400">${balance.toLocaleString()}</span>
               <Badge className="bg-emerald-600 text-white text-xs">
                 <TrendingUp className="h-3 w-3 mr-1" />
                 +15%
@@ -84,8 +117,8 @@ export function WalletEscrow({ onNavigate }: WalletEscrowProps) {
             <CardTitle className="text-sm font-medium text-muted-foreground">In Escrow</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-bold text-amber-400">$500</span>
+              <div className="flex items-baseline space-x-2">
+              <span className="text-3xl font-bold text-amber-400">${escrow.toLocaleString()}</span>
               <Badge className="bg-amber-600 text-white text-xs animate-pulse">
                 <Shield className="h-3 w-3 mr-1" />
                 Secured
