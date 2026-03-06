@@ -1,5 +1,6 @@
 import React from 'react';
-import { Home, Users, DollarSign, Swords, Trophy, MessageCircle, Wallet, Settings, Shield, Star, Gamepad2, TrendingUp } from 'lucide-react';
+import { useAuth } from './AuthContext';
+import { Home, Users, UserPlus, DollarSign, Swords, Trophy, MessageCircle, Wallet, Settings, Shield, Star, Gamepad2, TrendingUp } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
@@ -11,6 +12,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeTab, onTabChange, onSignOut }: SidebarProps) {
+  const { user } = useAuth();
   const navigationSections = [
     {
       items: [
@@ -32,7 +34,8 @@ export function Sidebar({ activeTab, onTabChange, onSignOut }: SidebarProps) {
       icon: Users,
       items: [
         { id: 'hubs', label: 'Social Hubs', icon: Users, badge: '5' },
-        { id: 'messages', label: 'Messages', icon: MessageCircle, badge: '12' }
+        { id: 'messages', label: 'Messages', icon: MessageCircle, badge: '12' },
+        { id: 'friends', label: 'Friends', icon: UserPlus }
       ]
     },
     {
@@ -66,8 +69,8 @@ export function Sidebar({ activeTab, onTabChange, onSignOut }: SidebarProps) {
                     key={item.id}
                     variant={activeTab === item.id ? "secondary" : "ghost"}
                     className={`w-full justify-between h-10 px-3 transition-all duration-300 hover:scale-105 hover:translate-x-1 ${
-                      activeTab === item.id 
-                        ? 'bg-primary/20 text-primary border-primary/50' 
+                      activeTab === item.id
+                        ? 'bg-primary/20 text-primary border-primary/50'
                         : 'text-foreground hover:bg-primary/10 hover:text-primary'
                     }`}
                     onClick={() => onTabChange(item.id)}
@@ -114,11 +117,11 @@ export function Sidebar({ activeTab, onTabChange, onSignOut }: SidebarProps) {
           <div className="pl-7 text-sm space-y-1">
             <div className="flex justify-between text-muted-foreground">
               <span>Available Credits:</span>
-              <span className="text-emerald-400 font-medium">2,450</span>
+              <span className="text-emerald-400 font-medium">{(user?.wallet?.balance ?? 0).toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>In Escrow:</span>
-              <span className="text-amber-400 font-medium">500</span>
+              <span className="text-amber-400 font-medium">{(user?.wallet?.escrow ?? 0).toLocaleString()}</span>
             </div>
           </div>
         </div>

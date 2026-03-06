@@ -58,6 +58,18 @@ export function WalletEscrow({ onNavigate }: WalletEscrowProps) {
     return () => { mounted = false; };
   }, [refreshUser]);
 
+  // compute total earnings from either user or transactions
+  const { user } = useAuth();
+  const computedTotalEarnings = transactions.reduce((sum, t) => {
+    const tt = (t.type || '').toString().toLowerCase();
+    if ((tt === 'payout' || tt === 'win' || tt === 'escrow_release') && (t.rawAmount || 0) > 0) {
+      return sum + Number(t.rawAmount || 0);
+    }
+    return sum;
+  }, 0);
+
+  const totalEarningsToShow = user?.totalEarnings ?? computedTotalEarnings;
+
   return (
     <div className="space-y-6 animate-fadeInUp">
       {/* Page Header */}
@@ -136,7 +148,7 @@ export function WalletEscrow({ onNavigate }: WalletEscrowProps) {
           </CardHeader>
           <CardContent>
             <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-bold text-primary">$12,850</span>
+              <span className="text-3xl font-bold text-primary">${totalEarningsToShow.toLocaleString()}</span>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
               All-time winnings

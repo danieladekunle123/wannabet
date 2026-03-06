@@ -55,6 +55,9 @@ import { Card, CardContent } from "./components/ui/card";
 import { Trophy, Users, Star, Flame, Clock } from "lucide-react";
 import { AuthProvider } from "./components/AuthContext";
 import { useAuth } from "./components/AuthContext";
+import { Admin } from "./components/Admin";
+import { Moderator } from "./components/Moderator";
+import { FriendsList } from "./components/FriendsList";
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState("home");
@@ -64,8 +67,16 @@ function AppContent() {
   const [hideSidebar, setHideSidebar] = useState(false);
   const [messagesKey, setMessagesKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  const [initialConversationId, setInitialConversationId] = useState<string | undefined>(undefined);
 
   const { user, isAuthenticated, logout } = useAuth();
+
+  // map URL pathname to activeTab on initial load
+  React.useEffect(() => {
+    const path = window.location.pathname.toLowerCase();
+    if (path === '/admin') setActiveTab('admin');
+    if (path === '/moderator') setActiveTab('moderator');
+  }, []);
 
   // Scroll reset
   React.useEffect(() => {
@@ -110,11 +121,19 @@ function AppContent() {
     setActiveTab(tab);
     if (query) {
       setSearchQuery(query);
+      if (tab === 'messages') setInitialConversationId(query);
     }
+    // update browser url for admin/moderator pages
+    if (tab === 'admin') window.history.pushState({}, '', '/admin');
+    if (tab === 'moderator') window.history.pushState({}, '', '/moderator');
   };
 
   if (!isAuthenticated) {
-    return authView === "login" ? <Login /> : <Signup />;
+    return authView === "login" ? (
+      <Login onSwitchToSignup={() => setAuthView("signup")} />
+    ) : (
+      <Signup onSwitchToLogin={() => setAuthView("login")} />
+    );
   }
 
   // Show onboarding if user just signed up
@@ -454,6 +473,11 @@ function AppContent() {
                   </div>
                 </div>
               )}
+              {activeTab === 'friends' && (
+                <div className="page-transition">
+                  <FriendsList />
+                </div>
+              )}
 
               {activeTab === "create-match" && (
                 <div className="page-transition">
@@ -562,7 +586,9 @@ function AppContent() {
                   <Tournaments onNavigate={setActiveTab} />
                 </div>
               )}
-              {activeTab === "messages" && <Messages key={messagesKey} />}
+              {activeTab === "messages" && (
+                <Messages key={messagesKey} initialConversationId={initialConversationId} onInitialConsumed={() => setInitialConversationId(undefined)} />
+              )}
               {activeTab === "leaderboards" && (
                 <div className="page-transition">
                   <Leaderboards />
@@ -699,6 +725,35 @@ function AppContent() {
               {activeTab === "delete-account" && (
                 <div className="page-transition">
                   <DeleteAccount onNavigate={setActiveTab} />
+                </div>
+              )}
+              {activeTab === 'admin' && (
+                <div className="page-transition">
+                  {user?.role === 'ADMIN' ? (
+                    <Admin />
+                  ) : (
+                    <Card className="p-6">
+                      <CardContent>
+                        <h3 className="text-lg font-semibold">Access Denied</h3>
+                        <p className="text-sm text-muted-foreground mt-2">You do not have permission to view the Admin Dashboard.</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'moderator' && (
+                <div className="page-transition">
+                  {(user?.role === 'MODERATOR' || user?.role === 'ADMIN') ? (
+                    <Moderator />
+                  ) : (
+                    <Card className="p-6">
+                      <CardContent>
+                        <h3 className="text-lg font-semibold">Access Denied</h3>
+                        <p className="text-sm text-muted-foreground mt-2">You do not have permission to view the Moderator Dashboard.</p>
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
               )}
             </div>

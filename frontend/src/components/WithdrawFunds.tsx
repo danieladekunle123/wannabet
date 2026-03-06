@@ -44,11 +44,11 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
   const [verificationCode, setVerificationCode] = useState('');
   const [withdrawalFee, setWithdrawalFee] = useState(0);
 
-  const currentBalance = 2450;
-  const inEscrow = 500;
-  const availableBalance = currentBalance - inEscrow;
-
   const { refreshUser } = useAuth();
+  const { user } = useAuth();
+  const currentBalance = user?.wallet?.balance ?? 0;
+  const inEscrow = user?.wallet?.escrow ?? 0;
+  const availableBalance = currentBalance - inEscrow;
 
   const quickAmounts = [100, 250, 500, 1000, 1950]; // Max is available balance
 

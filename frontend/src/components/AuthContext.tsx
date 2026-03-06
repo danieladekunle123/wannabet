@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import api from "../lib/api";
 
 const API_URL = "http://localhost:4000";
 
@@ -26,6 +27,7 @@ export type User = {
     displayName?: string | null;
     bio?: string | null;
   };
+  role?: 'PLAYER' | 'MODERATOR' | 'ADMIN';
 };
 
 const AuthContext = createContext<AuthContextType>(null!);
@@ -46,7 +48,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     if (!res.ok) throw new Error("Session expired");
     const data = await res.json();
-    setUser(data.user);
+    // compute total earnings from ledger if available
+    try {
+      const ledger = await api.getMyLedger();
+      const entries = ledger.entries || [];
+      const total = entries.reduce((sum: number, e: any) => {
+        const t = (e.type || "").toString().toLowerCase();
+        // count payouts/releases/wins as earnings
+        if ((t === "payout" || t === "escrow_release" || t === "win") && (e.amount || 0) > 0) {
+          return sum + Number(e.amount || 0);
+        }
+        return sum;
+      }, 0);
+      setUser({ ...data.user, totalEarnings: total, role: data.user?.role });
+    } catch (err) {
+      // fallback to user without earnings
+      setUser({ ...data.user, role: data.user?.role });
+    }
   }
 
   async function login(email: string, password: string) {

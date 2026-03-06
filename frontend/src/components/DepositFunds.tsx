@@ -44,7 +44,8 @@ export function DepositFunds({ onNavigate }: DepositFundsProps) {
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [processingFee, setProcessingFee] = useState(0);
 
-  const currentBalance = 2450;
+  const { user } = useAuth();
+  const currentBalance = user?.wallet?.balance ?? 0;
 
   const quickAmounts = [50, 100, 250, 500, 1000, 2500];
 

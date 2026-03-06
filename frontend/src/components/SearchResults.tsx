@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from './AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -23,7 +24,7 @@ import {
 } from 'lucide-react';
 
 interface SearchResultsProps {
-  onNavigate: (tab: string) => void;
+  onNavigate: (tab: string, query?: string) => void;
   searchQuery?: string;
 }
 
@@ -215,23 +216,41 @@ const mockScrims = [
 export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsProps) {
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchInput, setSearchInput] = useState(searchQuery);
+  const { user } = useAuth();
+  const [results, setResults] = useState<{ users: any[]; matches: any[]; games: any[] }>({ users: [], matches: [], games: [] });
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
-  // Filter results based on search query
-  const filteredUsers = mockUsers.filter(user =>
-    user.username.toLowerCase().includes(searchInput.toLowerCase()) ||
-    user.games.some(game => game.toLowerCase().includes(searchInput.toLowerCase()))
-  );
+  useEffect(() => {
+    setSearchInput(searchQuery || '');
+  }, [searchQuery]);
 
+  useEffect(() => {
+    const q = (searchInput || '').trim();
+    if (!q) return;
+    let mounted = true;
+    fetch(`${API_URL}/search?q=${encodeURIComponent(q)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!mounted) return;
+        setResults(data.data || { users: [], matches: [], games: [] });
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setResults({ users: [], matches: [], games: [] });
+      });
+    return () => { mounted = false; };
+  }, [searchInput]);
+
+  // Use API results when available, otherwise fall back to mock slices for lobbies/tournaments
+  const filteredUsers = (results.users || []).slice(0, 20);
   const filteredLobbies = mockLobbies.filter(lobby =>
     lobby.title.toLowerCase().includes(searchInput.toLowerCase()) ||
     lobby.game.toLowerCase().includes(searchInput.toLowerCase())
   );
-
   const filteredTournaments = mockTournaments.filter(tournament =>
     tournament.name.toLowerCase().includes(searchInput.toLowerCase()) ||
     tournament.game.toLowerCase().includes(searchInput.toLowerCase())
   );
-
   const filteredScrims = mockScrims.filter(scrim =>
     scrim.title.toLowerCase().includes(searchInput.toLowerCase()) ||
     scrim.game.toLowerCase().includes(searchInput.toLowerCase())
@@ -329,65 +348,76 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
                 Players ({filteredUsers.length})
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filteredUsers.slice(0, 4).map((user, index) => (
+                {filteredUsers.slice(0, 8).map((u: any, index: number) => (
                   <Card 
-                    key={user.id} 
+                    key={u.id} 
                     className="hover-lift cursor-pointer border-primary/30 animate-fadeInUp"
                     style={{ animationDelay: `${index * 0.1}s` }}
-                    onClick={() => onNavigate(`profile-${user.id}`)}
+                    onClick={() => onNavigate(`profile-${u.id}`)}
                   >
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex items-start space-x-3 flex-1 min-w-0">
                           <div className="relative shrink-0">
                             <div className={`w-12 h-12 rounded-full bg-gradient-to-br from-primary to-amber-500 flex items-center justify-center shadow-lg`}>
-                              <span className="text-white font-bold">{user.avatar}</span>
+                              <span className="text-white font-bold">{u.avatar}</span>
                             </div>
-                            {user.isOnline && (
+                            {u.isOnline && (
                               <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-card rounded-full" />
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-semibold text-foreground truncate">{user.username}</h4>
-                              {user.isVerified && (
+                              <h4 className="font-semibold text-foreground truncate">{u.username}</h4>
+                              {u.isVerified && (
                                 <Shield className="h-4 w-4 text-blue-400 shrink-0" />
                               )}
                             </div>
                             <div className="flex flex-wrap items-center gap-2 mb-2">
-                              <Badge className={`text-xs ${user.tier === 'Elite' ? 'bg-amber-600' : 'bg-blue-600'} text-white`}>
-                                {user.tier}
+                              <Badge className={`text-xs ${u.tier === 'Elite' ? 'bg-amber-600' : 'bg-blue-600'} text-white`}>
+                                {u.tier}
                               </Badge>
                               <Badge variant="outline" className="text-xs">
-                                #{user.rank} Global
+                                #{u.rank} Global
                               </Badge>
                               <span className="text-xs text-muted-foreground flex items-center">
                                 <MapPin className="h-3 w-3 mr-1" />
-                                {user.country}
+                                {u.country}
                               </span>
                             </div>
                             <div className="flex flex-wrap gap-1 mb-2">
-                              {user.games.slice(0, 3).map(game => (
+                              {(u.games || []).slice(0, 3).map((game: any) => (
                                 <Badge key={game} variant="outline" className="text-xs">
                                   {game}
                                 </Badge>
                               ))}
                             </div>
                             <div className="flex items-center gap-3 text-xs">
-                              <span className="text-muted-foreground">{user.mmr} MMR</span>
-                              <span className="text-emerald-400">{user.wins}W-{user.losses}L</span>
+                              <span className="text-muted-foreground">{u.mmr} MMR</span>
+                              <span className="text-emerald-400">{u.wins}W-{u.losses}L</span>
                               <span className="flex items-center text-amber-400">
                                 <Star className="h-3 w-3 mr-1" />
-                                {user.trustScore}%
+                                {u.trustScore}%
                               </span>
                             </div>
                           </div>
                         </div>
-                        <div className="text-right shrink-0">
+                        <div className="text-right shrink-0 flex flex-col items-end space-y-2">
                           <div className="text-sm font-bold text-emerald-400">
-                            ${user.earnings.toLocaleString()}
+                            {u.profile?.displayName || u.username}
                           </div>
-                          <div className="text-xs text-muted-foreground">earned</div>
+                          <div className="flex items-center gap-2">
+                            <Button size="sm" onClick={(e) => { e.stopPropagation(); onNavigate(`profile-${u.id}`); }}>Profile</Button>
+                            <Button size="sm" onClick={(e) => {
+                              e.stopPropagation();
+                              const current = user?.id || (window as any).__WB_CURRENT_USER_ID;
+                              const target = String(u.id);
+                              const a = String(current || target);
+                              const b = target;
+                              const pair = [a, b].sort().join(':');
+                              onNavigate('messages', `dm:${pair}`);
+                            }}>Message</Button>
+                          </div>
                         </div>
                       </div>
                     </CardContent>
@@ -515,65 +545,65 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
         {/* Players Only */}
         <TabsContent value="users" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredUsers.map((user, index) => (
+            {filteredUsers.map((u: any, index: number) => (
               <Card 
-                key={user.id} 
+                key={u.id} 
                 className="hover-lift cursor-pointer border-primary/30 animate-fadeInUp"
                 style={{ animationDelay: `${index * 0.1}s` }}
-                onClick={() => onNavigate(`profile-${user.id}`)}
+                onClick={() => onNavigate(`profile-${u.id}`)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-start space-x-3 flex-1 min-w-0">
                       <div className="relative shrink-0">
                         <div className={`w-12 h-12 rounded-full bg-gradient-to-br from-primary to-amber-500 flex items-center justify-center shadow-lg`}>
-                          <span className="text-white font-bold">{user.avatar}</span>
+                          <span className="text-white font-bold">{u.avatar}</span>
                         </div>
-                        {user.isOnline && (
+                        {u.isOnline && (
                           <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-card rounded-full" />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-semibold text-foreground truncate">{user.username}</h4>
-                          {user.isVerified && (
+                          <h4 className="font-semibold text-foreground truncate">{u.username}</h4>
+                          {u.isVerified && (
                             <Shield className="h-4 w-4 text-blue-400 shrink-0" />
                           )}
                         </div>
                         <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <Badge className={`text-xs ${user.tier === 'Elite' ? 'bg-amber-600' : 'bg-blue-600'} text-white`}>
-                            {user.tier}
+                          <Badge className={`text-xs ${u.tier === 'Elite' ? 'bg-amber-600' : 'bg-blue-600'} text-white`}>
+                            {u.tier}
                           </Badge>
                           <Badge variant="outline" className="text-xs">
-                            #{user.rank} Global
+                            #{u.rank} Global
                           </Badge>
                           <span className="text-xs text-muted-foreground flex items-center">
                             <MapPin className="h-3 w-3 mr-1" />
-                            {user.country}
+                            {u.country}
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-1 mb-2">
-                          {user.games.slice(0, 3).map(game => (
+                          {(u.games || []).slice(0, 3).map((game: any) => (
                             <Badge key={game} variant="outline" className="text-xs">
                               {game}
                             </Badge>
                           ))}
                         </div>
                         <div className="flex items-center gap-3 text-xs">
-                          <span className="text-muted-foreground">{user.mmr} MMR</span>
-                          <span className="text-emerald-400">{user.wins}W-{user.losses}L</span>
+                          <span className="text-muted-foreground">{u.mmr} MMR</span>
+                          <span className="text-emerald-400">{u.wins}W-{u.losses}L</span>
                           <span className="flex items-center text-amber-400">
                             <Star className="h-3 w-3 mr-1" />
-                            {user.trustScore}%
+                            {u.trustScore}%
                           </span>
                         </div>
                       </div>
                     </div>
                     <div className="text-right shrink-0">
                       <div className="text-sm font-bold text-emerald-400">
-                        ${user.earnings.toLocaleString()}
+                        {u.profile?.displayName || u.username}
                       </div>
-                      <div className="text-xs text-muted-foreground">earned</div>
+                      <div className="text-xs text-muted-foreground">player</div>
                     </div>
                   </div>
                 </CardContent>

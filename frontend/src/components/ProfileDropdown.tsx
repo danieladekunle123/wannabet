@@ -9,9 +9,11 @@ import {
   Settings,
   LogOut,
   Shield,
+  Crown,
   Wallet,
   CreditCard,
 } from "lucide-react";
+import { UserPlus } from 'lucide-react';
 import { useAuth } from "./AuthContext";
 
 interface ProfileDropdownProps {
@@ -25,20 +27,20 @@ export function ProfileDropdown({
 }: ProfileDropdownProps) {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
 
+  const { user, logout } = useAuth();
+
   const userStats = {
-    username: "YouAreHere",
-    displayName: "Elite Gamer",
+    username: user?.username ?? "YouAreHere",
+    displayName: user?.profile?.displayName ?? "Elite Gamer",
     trustScore: 98.5,
-    totalEarnings: 12400,
+    totalEarnings: user?.totalEarnings ?? 0,
     currentRank: 42,
     mmr: 2450,
     winRate: 84.7,
     totalWins: 127,
-    escrowBalance: 250.5,
-    availableCredits: 1840.0,
+    escrowBalance: user?.wallet?.escrow ?? 0,
+    availableCredits: user?.wallet?.balance ?? 0,
   };
-
-  const { user, logout } = useAuth();
   if (!user) return null;
 
   const handleNavigateAndClose = (page: string) => {
@@ -155,6 +157,37 @@ export function ProfileDropdown({
             <CreditCard className="h-4 w-4 mr-3" />
             Subscriptions / Credits
           </Button>
+
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-foreground hover:bg-primary/10 hover:text-primary focus:ring-2 focus:ring-primary profile-menu-item"
+            style={{ animationDelay: "360ms" }}
+            onClick={() => handleNavigateAndClose('friends')}
+          >
+            <UserPlus className="h-4 w-4 mr-3" />
+            Friends
+          </Button>
+          {/* Admin/Moderator quick links */}
+          {user?.role === 'ADMIN' && (
+            <Button
+              variant="ghost"
+              className="w-full justify-start text-foreground hover:bg-primary/10 hover:text-primary focus:ring-2 focus:ring-primary profile-menu-item"
+              onClick={() => handleNavigateAndClose('admin')}
+            >
+              <Crown className="h-4 w-4 mr-3" />
+              Admin Dashboard
+            </Button>
+          )}
+          {(user?.role === 'ADMIN' || user?.role === 'MODERATOR') && (
+            <Button
+              variant="ghost"
+              className="w-full justify-start text-foreground hover:bg-primary/10 hover:text-primary focus:ring-2 focus:ring-primary profile-menu-item"
+              onClick={() => handleNavigateAndClose('moderator')}
+            >
+              <Shield className="h-4 w-4 mr-3" />
+              Moderator Dashboard
+            </Button>
+          )}
         </div>
 
         <Separator className="my-2" />

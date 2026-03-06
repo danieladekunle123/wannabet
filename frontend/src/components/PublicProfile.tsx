@@ -81,6 +81,9 @@ export function PublicProfile({
 
   const [profileState, setProfileState] = useState<any>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [activeTab, setActiveTab] = useState("overview");
+  const [showAddFriendDialog, setShowAddFriendDialog] = useState(false);
+  const [showReportDialog, setShowReportDialog] = useState(false);
 
   const buildProfileFromUser = (u: any) => {
     return {
@@ -93,7 +96,7 @@ export function PublicProfile({
       isOnline: false,
       tier: "",
       trustScore: u.profile?.trustScore ?? 0,
-      earnings: 0,
+      earnings: u.totalEarnings ?? 0,
       mmr: 0,
       wins: 0,
       losses: 0,
@@ -129,7 +132,7 @@ export function PublicProfile({
         }
       } catch (err) {
         console.error(err);
-        if (mounted) setProfile(emptyFallback);
+        if (mounted) setProfileState(emptyFallback);
       } finally {
         if (mounted) setLoadingProfile(false);
       }
@@ -151,9 +154,7 @@ export function PublicProfile({
   // ensure non-null for rendering
   const displayed = profileState || emptyFallback;
   const profile = displayed;
-  const [activeTab, setActiveTab] = useState("overview");
-  const [showAddFriendDialog, setShowAddFriendDialog] = useState(false);
-  const [showReportDialog, setShowReportDialog] = useState(false);
+  
 
   if (isOwnProfile && !user) {
     return (
@@ -276,7 +277,14 @@ export function PublicProfile({
                   <Button
                     variant="outline"
                     className="w-full sm:flex-1 lg:w-auto"
-                    onClick={() => onNavigate("messages")}
+                    onClick={() => {
+                      const current = user?.id || (window as any).__WB_CURRENT_USER_ID;
+                      const target = String(userId || profile.username || profile.avatar);
+                      const a = String(current || target);
+                      const b = target;
+                      const pair = [a, b].sort().join(":");
+                      onNavigate('messages', `dm:${pair}`);
+                    }}
                   >
                     <MessageSquare className="h-4 w-4 mr-2" />
                     Message

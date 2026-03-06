@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from './AuthContext';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Badge } from './ui/badge';
@@ -54,12 +55,13 @@ export function JoinMatch({ onNavigate }: JoinMatchProps) {
     ]
   };
 
+  const { user } = useAuth();
   const userStats = {
     mmr: 2650,
     trustScore: 98.5,
     matchesPlayed: 247,
     winRate: 64,
-    credits: 2450,
+    credits: user?.wallet?.balance ?? 0,
   };
 
   const meetsRequirements = 

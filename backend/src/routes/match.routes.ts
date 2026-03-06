@@ -69,6 +69,21 @@ matchRouter.post("/", requireAuth, async (req, res) => {
       return { match, updatedWallet, entry };
     });
 
+    // create player log for host
+    try {
+      await prisma.playerLog.create({
+        data: {
+          userId: userId,
+          actorId: userId,
+          type: 'MATCH_CREATED',
+          message: `Created match ${result.match.id} (${game}) for $${stake}`,
+          meta: { matchId: result.match.id, game, stake },
+        },
+      });
+    } catch (err) {
+      console.error('failed to create player log', err);
+    }
+
     return res.status(201).json({
       match: result.match,
       wallet: result.updatedWallet,
@@ -122,6 +137,17 @@ matchRouter.post("/:id/join", requireAuth, async (req, res) => {
         data: {
           balance: { decrement: match.stake },
           escrow: { increment: match.stake },
+        },
+      });
+
+      // create player log for joiner inside transaction
+      await tx.playerLog.create({
+        data: {
+          userId: userId,
+          actorId: userId,
+          type: 'MATCH_JOINED',
+          message: `Joined match ${matchId}`,
+          meta: { matchId },
         },
       });
 
@@ -199,6 +225,21 @@ matchRouter.post("/:id/report", requireAuth, async (req, res) => {
         reportedById: true,
       },
     });
+
+    // log report action for reporter
+    try {
+      await prisma.playerLog.create({
+        data: {
+          userId: reporterId,
+          actorId: reporterId,
+          type: 'MATCH_REPORTED',
+          message: `Reported result for match ${matchId}; reported winner ${winnerId}`,
+          meta: { matchId, reportedWinnerId: winnerId },
+        },
+      });
+    } catch (err) {
+      console.error('failed to create player log', err);
+    }
 
     return res.json({ match: updatedMatch });
   } catch (err: any) {
@@ -290,6 +331,26 @@ matchRouter.post("/:id/confirm", requireAuth, async (req, res) => {
       const completedMatch = await tx.match.update({
         where: { id: matchId },
         data: { status: "COMPLETED" },
+      });
+
+      // log completion and payout for winner and loser
+      await tx.playerLog.createMany({
+        data: [
+          {
+            userId: winnerId,
+            actorId: confirmerId,
+            type: 'MATCH_WON',
+            message: `Won match ${matchId} and received $${pot}`,
+            meta: { matchId, amount: pot },
+          },
+          {
+            userId: loserId,
+            actorId: confirmerId,
+            type: 'MATCH_LOST',
+            message: `Lost match ${matchId}`,
+            meta: { matchId, amount: stake },
+          },
+        ],
       });
 
       return completedMatch;
