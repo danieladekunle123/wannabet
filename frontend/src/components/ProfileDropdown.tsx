@@ -3,9 +3,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Separator } from "./ui/separator";
-import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import {
-  User,
   Settings,
   LogOut,
   Shield,
@@ -13,8 +11,9 @@ import {
   Wallet,
   CreditCard,
 } from "lucide-react";
-import { UserPlus } from 'lucide-react';
+import { UserPlus } from "lucide-react";
 import { useAuth } from "./AuthContext";
+import { UserAvatar } from "./UserAvatar";
 
 interface ProfileDropdownProps {
   onNavigate?: (page: string) => void;
@@ -84,15 +83,12 @@ export function ProfileDropdown({
       {/* Profile Summary */}
       <div className="p-4 bg-gradient-to-r from-primary/10 to-transparent profile-header-slide">
         <div className="flex items-center space-x-3">
-          <Avatar className="h-12 w-12">
-            {user.avatarUrl ? (
-              <AvatarImage src={user.avatarUrl} />
-            ) : (
-              <AvatarFallback>
-                {user.username.slice(0, 2).toUpperCase()}
-              </AvatarFallback>
-            )}
-          </Avatar>
+          <UserAvatar
+            className="h-12 w-12"
+            name={user?.profile?.displayName || user?.username}
+            username={user?.username}
+            imageUrl={user?.profileImageUrl || user?.avatarUrl}
+          />
           <div className="flex-1">
             <h3 className="font-medium text-foreground">{user.username}</h3>
             <p className="text-sm text-muted-foreground">{user.email}</p>
@@ -162,27 +158,27 @@ export function ProfileDropdown({
             variant="ghost"
             className="w-full justify-start text-foreground hover:bg-primary/10 hover:text-primary focus:ring-2 focus:ring-primary profile-menu-item"
             style={{ animationDelay: "360ms" }}
-            onClick={() => handleNavigateAndClose('friends')}
+            onClick={() => handleNavigateAndClose("friends")}
           >
             <UserPlus className="h-4 w-4 mr-3" />
             Friends
           </Button>
           {/* Admin/Moderator quick links */}
-          {user?.role === 'ADMIN' && (
+          {user?.role === "ADMIN" && (
             <Button
               variant="ghost"
               className="w-full justify-start text-foreground hover:bg-primary/10 hover:text-primary focus:ring-2 focus:ring-primary profile-menu-item"
-              onClick={() => handleNavigateAndClose('admin')}
+              onClick={() => handleNavigateAndClose("admin")}
             >
               <Crown className="h-4 w-4 mr-3" />
               Admin Dashboard
             </Button>
           )}
-          {(user?.role === 'ADMIN' || user?.role === 'MODERATOR') && (
+          {(user?.role === "ADMIN" || user?.role === "MODERATOR") && (
             <Button
               variant="ghost"
               className="w-full justify-start text-foreground hover:bg-primary/10 hover:text-primary focus:ring-2 focus:ring-primary profile-menu-item"
-              onClick={() => handleNavigateAndClose('moderator')}
+              onClick={() => handleNavigateAndClose("moderator")}
             >
               <Shield className="h-4 w-4 mr-3" />
               Moderator Dashboard
@@ -212,13 +208,18 @@ export function ProfileDropdown({
   return (
     <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
       <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="hover:bg-primary/10 focus:ring-2 focus:ring-primary"
+        <button
+          type="button"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-primary"
+          aria-label="Open profile menu"
         >
-          <User className="h-5 w-5 text-foreground" />
-        </Button>
+          <UserAvatar
+            className="h-8 w-8"
+            name={user?.profile?.displayName || user?.username}
+            username={user?.username}
+            imageUrl={user?.profileImageUrl || user?.avatarUrl}
+          />
+        </button>
       </PopoverTrigger>
       <QuickAccountMenu />
     </Popover>

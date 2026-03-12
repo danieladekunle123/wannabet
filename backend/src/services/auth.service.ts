@@ -8,15 +8,24 @@ export async function registerUser(input: {
   username: string;
   password: string;
 }) {
-  const existing = await prisma.user.findFirst({
-    where: {
-      OR: [{ email: input.email }, { username: input.username }],
-    },
+  const existingEmail = await prisma.user.findUnique({
+    where: { email: input.email },
     select: { id: true },
   });
 
-  if (existing) {
-    const err: any = new Error("Email or username already in use");
+  if (existingEmail) {
+    const err: any = new Error("An account with this email already exists.");
+    err.status = 409;
+    throw err;
+  }
+
+  const existingUsername = await prisma.user.findUnique({
+    where: { username: input.username },
+    select: { id: true },
+  });
+
+  if (existingUsername) {
+    const err: any = new Error("This username is already taken.");
     err.status = 409;
     throw err;
   }
@@ -36,7 +45,7 @@ export async function registerUser(input: {
       profile: {
         create: {
           displayName: input.username,
-          bio: '',
+          bio: "",
           country: null,
           level: 1,
           trustScore: 100,
@@ -111,8 +120,26 @@ export async function loginOrRegisterGoogleUser({
         username,
         googleId,
         avatarUrl,
+        profileImageUrl: avatarUrl,
         wallet: { create: {} },
-        profile: { create: { displayName: username, bio: '', country: null, level: 1, trustScore: 100 } },
+        profile: {
+          create: {
+            displayName: username,
+            bio: "",
+            country: null,
+            level: 1,
+            trustScore: 100,
+          },
+        },
+      },
+    });
+  } else if (avatarUrl && !user.profileImageUrl) {
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        googleId: user.googleId || googleId,
+        avatarUrl,
+        profileImageUrl: avatarUrl,
       },
     });
   }

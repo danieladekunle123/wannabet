@@ -60,22 +60,30 @@ import { Moderator } from "./components/Moderator";
 import { FriendsList } from "./components/FriendsList";
 
 function AppContent() {
+  const AUTH_TRANSITION_MS = 340;
   const [activeTab, setActiveTab] = useState("home");
   const [contentTab, setContentTab] = useState("lobbies");
   const [authView, setAuthView] = useState<"login" | "signup">("signup");
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [renderedAuthView, setRenderedAuthView] = useState<"login" | "signup">(
+    "signup",
+  );
+  const [authTransitionClass, setAuthTransitionClass] =
+    useState("auth-view-enter");
   const [hideSidebar, setHideSidebar] = useState(false);
   const [messagesKey, setMessagesKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
-  const [initialConversationId, setInitialConversationId] = useState<string | undefined>(undefined);
+  const [initialConversationId, setInitialConversationId] = useState<
+    string | undefined
+  >(undefined);
+  const authTransitionTimerRef = React.useRef<number | null>(null);
 
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, completeOnboarding } = useAuth();
 
   // map URL pathname to activeTab on initial load
   React.useEffect(() => {
     const path = window.location.pathname.toLowerCase();
-    if (path === '/admin') setActiveTab('admin');
-    if (path === '/moderator') setActiveTab('moderator');
+    if (path === "/admin") setActiveTab("admin");
+    if (path === "/moderator") setActiveTab("moderator");
   }, []);
 
   // Scroll reset
@@ -100,44 +108,85 @@ function AppContent() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const handleOnboardingComplete = () => {
-    setShowOnboarding(false);
+  const handleOnboardingComplete = async () => {
+    try {
+      await completeOnboarding();
+    } catch (err) {
+      console.error(err);
+    }
     setActiveTab("home");
   };
 
-  const handleOnboardingSkip = () => {
-    setShowOnboarding(false);
-    setActiveTab("home");
-  };
+  const handleOnboardingSkip = handleOnboardingComplete;
 
   const handleSignOut = () => {
     logout();
     setAuthView("signup");
+    setRenderedAuthView("signup");
     setActiveTab("home");
-    setShowOnboarding(false);
   };
+
+  const switchAuthView = (nextView: "login" | "signup") => {
+    if (nextView === renderedAuthView) return;
+
+    setAuthTransitionClass("auth-view-leave");
+    if (authTransitionTimerRef.current) {
+      window.clearTimeout(authTransitionTimerRef.current);
+    }
+
+    authTransitionTimerRef.current = window.setTimeout(() => {
+      setAuthView(nextView);
+      setRenderedAuthView(nextView);
+      setAuthTransitionClass("auth-view-enter");
+      authTransitionTimerRef.current = null;
+    }, AUTH_TRANSITION_MS);
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (authTransitionTimerRef.current) {
+        window.clearTimeout(authTransitionTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleNavigate = (tab: string, query?: string) => {
     setActiveTab(tab);
     if (query) {
       setSearchQuery(query);
-      if (tab === 'messages') setInitialConversationId(query);
+      if (tab === "messages") setInitialConversationId(query);
     }
     // update browser url for admin/moderator pages
-    if (tab === 'admin') window.history.pushState({}, '', '/admin');
-    if (tab === 'moderator') window.history.pushState({}, '', '/moderator');
+    if (tab === "admin") window.history.pushState({}, "", "/admin");
+    if (tab === "moderator") window.history.pushState({}, "", "/moderator");
   };
 
   if (!isAuthenticated) {
-    return authView === "login" ? (
-      <Login onSwitchToSignup={() => setAuthView("signup")} />
-    ) : (
-      <Signup onSwitchToLogin={() => setAuthView("login")} />
+    return (
+      <div className={authTransitionClass}>
+        {renderedAuthView === "login" ? (
+          <Login
+            onNavigate={(tab) => setActiveTab(tab)}
+            onSwitchToSignup={() => switchAuthView("signup")}
+          />
+        ) : (
+          <Signup
+            onNavigate={(tab) => {
+              if (tab === "onboarding") {
+                setActiveTab("home");
+                return;
+              }
+              setActiveTab(tab);
+            }}
+            onSwitchToLogin={() => switchAuthView("login")}
+          />
+        )}
+      </div>
     );
   }
 
-  // Show onboarding if user just signed up
-  if (isAuthenticated && showOnboarding) {
+  // Show onboarding only for users who have not completed it yet.
+  if (isAuthenticated && user && !user.hasCompletedOnboarding) {
     return (
       <Onboarding
         onComplete={handleOnboardingComplete}
@@ -473,9 +522,9 @@ function AppContent() {
                   </div>
                 </div>
               )}
-              {activeTab === 'friends' && (
+              {activeTab === "friends" && (
                 <div className="page-transition">
-                  <FriendsList />
+                  <FriendsList onNavigate={handleNavigate} />
                 </div>
               )}
 
@@ -524,7 +573,10 @@ function AppContent() {
               )}
               {activeTab.startsWith("view-match-") && (
                 <div className="page-transition">
-                  <ViewMatch onNavigate={setActiveTab} matchId={activeTab.replace("view-match-", "")} />
+                  <ViewMatch
+                    onNavigate={setActiveTab}
+                    matchId={activeTab.replace("view-match-", "")}
+                  />
                 </div>
               )}
               {activeTab === "tournament-bracket" && (
@@ -540,7 +592,7 @@ function AppContent() {
               {activeTab === "search-results" && (
                 <div className="page-transition">
                   <SearchResults
-                    onNavigate={setActiveTab}
+                    onNavigate={handleNavigate}
                     searchQuery={searchQuery}
                   />
                 </div>
@@ -548,7 +600,7 @@ function AppContent() {
               {activeTab === "my-profile" && (
                 <div className="page-transition">
                   <PublicProfile
-                    onNavigate={setActiveTab}
+                    onNavigate={handleNavigate}
                     isOwnProfile={true}
                   />
                 </div>
@@ -556,7 +608,7 @@ function AppContent() {
               {activeTab.startsWith("profile-") && (
                 <div className="page-transition">
                   <PublicProfile
-                    onNavigate={setActiveTab}
+                    onNavigate={handleNavigate}
                     userId={activeTab.replace("profile-", "")}
                   />
                 </div>
@@ -587,7 +639,12 @@ function AppContent() {
                 </div>
               )}
               {activeTab === "messages" && (
-                <Messages key={messagesKey} initialConversationId={initialConversationId} onInitialConsumed={() => setInitialConversationId(undefined)} />
+                <Messages
+                  key={messagesKey}
+                  initialConversationId={initialConversationId}
+                  onInitialConsumed={() => setInitialConversationId(undefined)}
+                  onNavigate={handleNavigate}
+                />
               )}
               {activeTab === "leaderboards" && (
                 <div className="page-transition">
@@ -727,30 +784,36 @@ function AppContent() {
                   <DeleteAccount onNavigate={setActiveTab} />
                 </div>
               )}
-              {activeTab === 'admin' && (
+              {activeTab === "admin" && (
                 <div className="page-transition">
-                  {user?.role === 'ADMIN' ? (
+                  {user?.role === "ADMIN" ? (
                     <Admin />
                   ) : (
                     <Card className="p-6">
                       <CardContent>
                         <h3 className="text-lg font-semibold">Access Denied</h3>
-                        <p className="text-sm text-muted-foreground mt-2">You do not have permission to view the Admin Dashboard.</p>
+                        <p className="text-sm text-muted-foreground mt-2">
+                          You do not have permission to view the Admin
+                          Dashboard.
+                        </p>
                       </CardContent>
                     </Card>
                   )}
                 </div>
               )}
 
-              {activeTab === 'moderator' && (
+              {activeTab === "moderator" && (
                 <div className="page-transition">
-                  {(user?.role === 'MODERATOR' || user?.role === 'ADMIN') ? (
+                  {user?.role === "MODERATOR" || user?.role === "ADMIN" ? (
                     <Moderator />
                   ) : (
                     <Card className="p-6">
                       <CardContent>
                         <h3 className="text-lg font-semibold">Access Denied</h3>
-                        <p className="text-sm text-muted-foreground mt-2">You do not have permission to view the Moderator Dashboard.</p>
+                        <p className="text-sm text-muted-foreground mt-2">
+                          You do not have permission to view the Moderator
+                          Dashboard.
+                        </p>
                       </CardContent>
                     </Card>
                   )}

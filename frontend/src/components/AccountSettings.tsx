@@ -10,7 +10,6 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Badge } from "./ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Separator } from "./ui/separator";
 import { Switch } from "./ui/switch";
 import {
@@ -38,6 +37,9 @@ import {
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useTheme } from "./ThemeContext";
 import { useAuth } from "./AuthContext";
+import { UserAvatar } from "./UserAvatar";
+import { GifPicker } from "./GifPicker";
+import api from "../lib/api";
 
 interface AccountSettingsProps {
   onNavigate?: (tab: string) => void;
@@ -47,6 +49,11 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
   const { mode, color, setMode, setColor } = useTheme();
   const [isEditing, setIsEditing] = useState(false);
   const { user, refreshUser } = useAuth();
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const GIPHY_API_KEY =
+    import.meta.env.VITE_GIPHY_API_KEY || "wYChZ0CXRzFrNp3kVR2bzsAqFHeBWyh2";
 
   const [formData, setFormData] = useState(() => ({
     username: user?.username ?? "",
@@ -61,12 +68,10 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
     (async () => {
       try {
         // update username/display name on account
-        await import("../lib/api").then((m) =>
-          m.updateMyAccount({ username: formData.username, displayName: formData.displayName })
-        );
+        await api.updateMyAccount({ username: formData.username, displayName: formData.displayName });
 
         // update profile fields like bio/country
-        await import("../lib/api").then((m) => m.updateMyProfile({ bio: formData.bio, country: formData.country }));
+        await api.updateMyProfile({ bio: formData.bio, country: formData.country });
 
         // refresh global user
         await refreshUser();
@@ -90,8 +95,56 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
     });
   };
 
+  const handleAvatarFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingAvatar(true);
+    try {
+      await api.uploadMyProfileImage(file);
+      await refreshUser();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUploadingAvatar(false);
+      event.target.value = "";
+    }
+  };
+
+  const handleGifSelected = async (gifUrl: string) => {
+    try {
+      await api.setMyProfileImageUrl(gifUrl);
+      await refreshUser();
+      setShowGifPicker(false);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fadeInUp">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={handleAvatarFileChange}
+      />
+
+      {showGifPicker && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl bg-card border border-border rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">Choose Profile GIF</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowGifPicker(false)}>
+                Close
+              </Button>
+            </div>
+            <GifPicker apiKey={GIPHY_API_KEY} onSelect={handleGifSelected} />
+          </div>
+        </div>
+      )}
+
       {/* Page Header */}
       <div className="flex items-center gap-4">
         <Button
@@ -135,19 +188,18 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
           {/* Avatar Section */}
           <div className="flex items-center space-x-4">
             <div className="relative">
-              <Avatar className="h-24 w-24 border-2 border-primary/50">
-                {user?.avatarUrl ? (
-                  <AvatarImage src={user.avatarUrl} />
-                ) : (
-                  <AvatarFallback>
-                    {user?.username.slice(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                )}
-              </Avatar>
+              <UserAvatar
+                className="h-24 w-24 border-2 border-primary/50"
+                name={user?.profile?.displayName || user?.username}
+                username={user?.username}
+                imageUrl={user?.profileImageUrl || user?.avatarUrl}
+              />
               {isEditing && (
                 <Button
                   size="icon"
                   className="absolute -bottom-2 -right-2 h-8 w-8 rounded-full bg-primary hover:bg-primary/90"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingAvatar}
                 >
                   <Camera className="h-4 w-4" />
                 </Button>
@@ -169,6 +221,23 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
               </p>
             </div>
           </div>
+
+          {isEditing && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingAvatar}
+              >
+                <Camera className="h-4 w-4 mr-2" />
+                {isUploadingAvatar ? "Uploading..." : "Upload Image"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setShowGifPicker(true)}>
+                Choose GIF
+              </Button>
+            </div>
+          )}
 
           <Separator />
 
@@ -211,7 +280,6 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                   id="email"
                   type="email"
                   value={formData.email}
-                  disabled
                   onChange={(e) =>
                     setFormData({ ...formData, email: e.target.value })
                   }

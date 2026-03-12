@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import http from "http";
+import path from "path";
 import { Server as IOServer } from "socket.io";
 import jwt from "jsonwebtoken";
 import { setIo } from "./lib/socket";
@@ -29,6 +30,7 @@ app.use(
 );
 
 app.use(express.json());
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/wallet", walletRouter);
 app.use("/matches", matchRouter);
 app.use("/tournaments", tournamentRouter);

@@ -11,6 +11,7 @@ type AuthContextType = {
   signup: (email: string, username: string, password: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  completeOnboarding: () => Promise<void>;
 };
 
 export type User = {
@@ -18,6 +19,8 @@ export type User = {
   email: string;
   username: string;
   avatarUrl?: string | null;
+  profileImageUrl?: string | null;
+  hasCompletedOnboarding?: boolean;
   createdAt: string;
   wallet?: {
     balance: number;
@@ -27,7 +30,7 @@ export type User = {
     displayName?: string | null;
     bio?: string | null;
   };
-  role?: 'PLAYER' | 'MODERATOR' | 'ADMIN';
+  role?: "PLAYER" | "MODERATOR" | "ADMIN";
 };
 
 const AuthContext = createContext<AuthContextType>(null!);
@@ -48,6 +51,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     if (!res.ok) throw new Error("Session expired");
     const data = await res.json();
+    const normalizedUser = {
+      ...data.user,
+      profileImageUrl:
+        data.user?.profileImageUrl ?? data.user?.avatarUrl ?? null,
+    };
     // compute total earnings from ledger if available
     try {
       const ledger = await api.getMyLedger();
@@ -55,15 +63,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const total = entries.reduce((sum: number, e: any) => {
         const t = (e.type || "").toString().toLowerCase();
         // count payouts/releases/wins as earnings
-        if ((t === "payout" || t === "escrow_release" || t === "win") && (e.amount || 0) > 0) {
+        if (
+          (t === "payout" || t === "escrow_release" || t === "win") &&
+          (e.amount || 0) > 0
+        ) {
           return sum + Number(e.amount || 0);
         }
         return sum;
       }, 0);
-      setUser({ ...data.user, totalEarnings: total, role: data.user?.role });
+      setUser({
+        ...normalizedUser,
+        totalEarnings: total,
+        role: normalizedUser?.role,
+      });
     } catch (err) {
       // fallback to user without earnings
-      setUser({ ...data.user, role: data.user?.role });
+      setUser({ ...normalizedUser, role: normalizedUser?.role });
     }
   }
 
@@ -109,6 +124,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }
 
+  async function completeOnboarding() {
+    const tokenToUse = token || localStorage.getItem("token");
+    if (!tokenToUse) return;
+
+    const res = await fetch(`${API_URL}/users/me/onboarding`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tokenToUse}`,
+      },
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.message || "Failed to complete onboarding");
+    }
+
+    await refreshUser(tokenToUse);
+  }
+
   useEffect(() => {
     if (token) {
       refreshUser(token).catch(() => logout());
@@ -117,7 +152,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, token, isAuthenticated, login, signup, logout, refreshUser }}
+      value={{
+        user,
+        token,
+        isAuthenticated,
+        login,
+        signup,
+        logout,
+        refreshUser,
+        completeOnboarding,
+      }}
     >
       {children}
     </AuthContext.Provider>

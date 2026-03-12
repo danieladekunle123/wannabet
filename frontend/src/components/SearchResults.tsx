@@ -22,6 +22,7 @@ import {
   Crown,
   Target
 } from 'lucide-react';
+import { UserAvatar } from './UserAvatar';
 
 interface SearchResultsProps {
   onNavigate: (tab: string, query?: string) => void;
@@ -359,9 +360,13 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex items-start space-x-3 flex-1 min-w-0">
                           <div className="relative shrink-0">
-                            <div className={`w-12 h-12 rounded-full bg-gradient-to-br from-primary to-amber-500 flex items-center justify-center shadow-lg`}>
-                              <span className="text-white font-bold">{u.avatar}</span>
-                            </div>
+                            <UserAvatar
+                              className="w-12 h-12 shadow-lg"
+                              name={u.profile?.displayName || u.username}
+                              username={u.username}
+                              imageUrl={u.profileImageUrl || u.avatarUrl}
+                              fallbackClassName="bg-gradient-to-br from-primary to-amber-500 text-white"
+                            />
                             {u.isOnline && (
                               <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-card rounded-full" />
                             )}
@@ -410,12 +415,10 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
                             <Button size="sm" onClick={(e) => { e.stopPropagation(); onNavigate(`profile-${u.id}`); }}>Profile</Button>
                             <Button size="sm" onClick={(e) => {
                               e.stopPropagation();
-                              const current = user?.id || (window as any).__WB_CURRENT_USER_ID;
-                              const target = String(u.id);
-                              const a = String(current || target);
-                              const b = target;
-                              const pair = [a, b].sort().join(':');
-                              onNavigate('messages', `dm:${pair}`);
+                              const targetUserId = String(u.id || '');
+                              if (!targetUserId || !user?.id || targetUserId === user.id) return;
+                              const targetUserName = encodeURIComponent(String(u.username || ""));
+                              onNavigate('messages', `user:${targetUserId}:${targetUserName}`);
                             }}>Message</Button>
                           </div>
                         </div>
@@ -556,9 +559,13 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-start space-x-3 flex-1 min-w-0">
                       <div className="relative shrink-0">
-                        <div className={`w-12 h-12 rounded-full bg-gradient-to-br from-primary to-amber-500 flex items-center justify-center shadow-lg`}>
-                          <span className="text-white font-bold">{u.avatar}</span>
-                        </div>
+                        <UserAvatar
+                          className="w-12 h-12 shadow-lg"
+                          name={u.profile?.displayName || u.username}
+                          username={u.username}
+                          imageUrl={u.profileImageUrl || u.avatarUrl}
+                          fallbackClassName="bg-gradient-to-br from-primary to-amber-500 text-white"
+                        />
                         {u.isOnline && (
                           <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-card rounded-full" />
                         )}

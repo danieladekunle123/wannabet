@@ -37,6 +37,7 @@ export function Signup({ onNavigate, onSwitchToLogin }: SignupProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const { signup } = useAuth();
+  const googleRedirectUri = window.location.origin;
 
   const getPasswordStrength = (password: string) => {
     let strength = 0;
@@ -73,8 +74,7 @@ export function Signup({ onNavigate, onSwitchToLogin }: SignupProps) {
 
     try {
       await signup(formData.email, formData.username, formData.password);
-
-      onNavigate("home");
+      onNavigate("onboarding");
     } catch (err: any) {
       setError(err.message || "Signup failed");
     } finally {
@@ -94,13 +94,18 @@ export function Signup({ onNavigate, onSwitchToLogin }: SignupProps) {
 
   const googleLogin = useGoogleLogin({
     flow: "auth-code",
+    redirect_uri: googleRedirectUri,
     onSuccess: async (codeResponse) => {
       setIsLoading(true);
       try {
         const res = await fetch("http://localhost:4000/auth/google", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: codeResponse.code }),
+          body: JSON.stringify({
+            code: codeResponse.code,
+            redirectUri: googleRedirectUri,
+            mode: "signup",
+          }),
         });
 
         const data = await res.json();

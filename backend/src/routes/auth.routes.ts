@@ -44,24 +44,36 @@ authRouter.post("/login", async (req, res) => {
 });
 
 authRouter.post("/google", async (req, res) => {
-  const { code } = req.body;
+  const { code, redirectUri, mode } = req.body as {
+    code?: string;
+    redirectUri?: string;
+    mode?: "signin" | "signup";
+  };
 
   if (!code) {
     return res.status(400).json({ message: "Missing auth code" });
   }
 
+  const finalRedirectUri = (
+    redirectUri ||
+    process.env.GOOGLE_REDIRECT_URI ||
+    ""
+  ).trim();
+  if (!finalRedirectUri) {
+    return res
+      .status(500)
+      .json({ message: "Google redirect URI is not configured" });
+  }
+
   try {
     // 1️⃣ Exchange auth code for tokens
-    const tokenRes = await axios.post(
-      "https://oauth2.googleapis.com/token",
-      {
-        code,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: process.env.GOOGLE_REDIRECT_URI,
-        grant_type: "authorization_code",
-      }
-    );
+    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", {
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: finalRedirectUri,
+      grant_type: "authorization_code",
+    });
 
     const { access_token } = tokenRes.data;
 
@@ -72,7 +84,7 @@ authRouter.post("/google", async (req, res) => {
         headers: {
           Authorization: `Bearer ${access_token}`,
         },
-      }
+      },
     );
 
     const { email, id: googleId, name, picture } = userRes.data;
@@ -82,8 +94,25 @@ authRouter.post("/google", async (req, res) => {
     }
 
     // 3️⃣ Find or create user
-    // 3️⃣ Find or create user
     let user = await prisma.user.findUnique({ where: { email } });
+
+    if (mode === "signin" && !user) {
+      return res
+        .status(404)
+        .json({
+          message:
+            "No account found for this Google account. Please sign up first.",
+        });
+    }
+
+    if (mode === "signup" && user) {
+      return res
+        .status(409)
+        .json({
+          message:
+            "This Google account is already registered. Please sign in instead.",
+        });
+    }
 
     if (!user) {
       const baseUsername = (name || email.split("@")[0])
@@ -91,7 +120,7 @@ authRouter.post("/google", async (req, res) => {
         .replace(/[^a-z0-9]/g, "");
 
       const uniqueUsername = `${baseUsername}_${Math.floor(
-        1000 + Math.random() * 9000
+        1000 + Math.random() * 9000,
       )}`;
 
       user = await prisma.user.create({
@@ -100,20 +129,46 @@ authRouter.post("/google", async (req, res) => {
           username: uniqueUsername,
           googleId,
           avatarUrl: picture,
+          profileImageUrl: picture,
+          wallet: { create: { balance: 0 } },
+          profile: {
+            create: {
+              displayName: name || uniqueUsername,
+              bio: "",
+              country: null,
+              level: 1,
+              trustScore: 100,
+            },
+          },
+        },
+      });
+    } else {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          googleId: user.googleId || googleId,
+          ...(picture && !user.profileImageUrl
+            ? {
+                avatarUrl: picture,
+                profileImageUrl: picture,
+              }
+            : {}),
         },
       });
     }
 
     // 4️⃣ Issue JWT
-    const token = jwt.sign(
-      { userId: user.id },
-      process.env.JWT_SECRET!,
-      { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
-    );
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET!, {
+      expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+    });
 
     res.json({ token });
   } catch (err: any) {
-    console.error("Google auth error:", err.response?.data || err);
-    res.status(400).json({ message: "Google authentication failed" });
+    const details = err.response?.data;
+    console.error("Google auth error:", details || err);
+    const upstreamMessage = details?.error_description || details?.error;
+    res
+      .status(400)
+      .json({ message: upstreamMessage || "Google authentication failed" });
   }
 });

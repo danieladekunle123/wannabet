@@ -4,7 +4,6 @@ import { Badge } from "./ui/badge";
 import { Card, CardContent, CardHeader } from "./ui/card";
 import { Input } from "./ui/input";
 import { ScrollArea } from "./ui/scroll-area";
-import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Separator } from "./ui/separator";
 import {
   ResizableHandle,
@@ -21,16 +20,16 @@ import {
   Star,
   Hash,
   User,
-  Phone,
-  Video,
   ArrowLeft,
   Smile,
-  Paperclip,
+  Loader2,
   Image as ImageIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "./AuthContext";
+import { GifPicker } from "./GifPicker";
+import { UserAvatar } from "./UserAvatar";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -44,6 +43,10 @@ interface Message {
   sender: string;
   content: string;
   timestamp: string;
+  senderId?: string;
+  replyToId?: string | null;
+  messageType?: "text" | "gif" | "image" | "video";
+  mediaUrl?: string | null;
   isMe?: boolean;
 }
 
@@ -63,12 +66,19 @@ interface Conversation {
 interface MessagesProps {
   initialConversationId?: string | undefined;
   onInitialConsumed?: () => void;
+  onNavigate?: (tab: string, query?: string) => void;
 }
+
+const THREAD_GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 export function Messages({
   initialConversationId,
   onInitialConsumed,
+  onNavigate,
 }: MessagesProps) {
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const GIPHY_API_KEY =
+    import.meta.env.VITE_GIPHY_API_KEY || "wYChZ0CXRzFrNp3kVR2bzsAqFHeBWyh2";
   const { user, token } = useAuth();
   const [selectedConversation, setSelectedConversation] = useState<string>("");
   const [messageInput, setMessageInput] = useState("");
@@ -82,12 +92,449 @@ export function Messages({
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState<string>("");
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [usernamesById, setUsernamesById] = useState<Record<string, string>>(
+    {},
+  );
+  const [userImagesById, setUserImagesById] = useState<Record<string, string>>(
+    {},
+  );
+  const selectedConversationRef = useRef<string>("");
+  const usernamesRef = useRef<Record<string, string>>({});
+  const conversationNamesRef = useRef<Record<string, string>>({});
+  const userImagesRef = useRef<Record<string, string>>({});
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const isLikelyUserId = (value?: string) => {
+    if (!value) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    );
+  };
+
+  const rememberUserName = (userId?: string | null, name?: string | null) => {
+    if (!userId || !name || isLikelyUserId(name)) return;
+    setUsernamesById((prev) => ({ ...prev, [userId]: name }));
+  };
+
+  const rememberUserImage = (
+    userId?: string | null,
+    imageUrl?: string | null,
+  ) => {
+    if (!userId || !imageUrl) return;
+    setUserImagesById((prev) => ({ ...prev, [userId]: imageUrl }));
+  };
+
+  const normalizeConversationId = (conversationId: string) => {
+    if (!conversationId?.startsWith("dm:")) return conversationId;
+    const parts = conversationId
+      .replace(/^dm:/, "")
+      .split(":")
+      .filter(Boolean)
+      .sort();
+    return `dm:${parts.join(":")}`;
+  };
+
+  const getDmOtherUserId = (conversationId: string) => {
+    if (!conversationId?.startsWith("dm:")) return null;
+    const parts = conversationId.replace(/^dm:/, "").split(":").filter(Boolean);
+    return parts.find((p) => p !== user?.id) || null;
+  };
+
+  const getUserNavigationMeta = (value?: string) => {
+    if (!value?.startsWith("user:")) return null;
+    const parts = value.split(":");
+    const targetUserId = parts[1] || "";
+    const encodedName = parts.slice(2).join(":");
+    const targetName = encodedName ? decodeURIComponent(encodedName) : "";
+    return { targetUserId, targetName };
+  };
+
+  const resolveConversationDisplayName = (conversationId: string) => {
+    if (!conversationId) return "Conversation";
+    if (!conversationId.startsWith("dm:")) {
+      return conversationNamesRef.current[conversationId] || "Conversation";
+    }
+
+    const otherUserId = getDmOtherUserId(conversationId);
+    if (otherUserId && usernamesRef.current[otherUserId]) {
+      return usernamesRef.current[otherUserId];
+    }
+
+    const mappedConversationName = conversationNamesRef.current[conversationId];
+    if (mappedConversationName && !isLikelyUserId(mappedConversationName)) {
+      return mappedConversationName;
+    }
+
+    return otherUserId || mappedConversationName || "Direct Message";
+  };
+
+  const resolveConversationAvatarUrl = (conversationId: string) => {
+    if (!conversationId?.startsWith("dm:")) return "";
+    const otherUserId = getDmOtherUserId(conversationId);
+    if (!otherUserId) return "";
+    return userImagesRef.current[otherUserId] || "";
+  };
+
+  const resolveSenderAvatarUrl = (
+    senderId?: string,
+    conversationId?: string,
+  ) => {
+    if (!senderId) return "";
+    if (senderId === user?.id) {
+      return user?.profileImageUrl || user?.avatarUrl || "";
+    }
+    if (userImagesRef.current[senderId]) {
+      return userImagesRef.current[senderId];
+    }
+
+    const targetConversationId =
+      conversationId || selectedConversationRef.current;
+    if (targetConversationId?.startsWith("dm:")) {
+      const otherUserId = getDmOtherUserId(targetConversationId);
+      if (otherUserId === senderId) {
+        return resolveConversationAvatarUrl(targetConversationId);
+      }
+    }
+
+    return "";
+  };
+
+  const resolveSenderLabel = (
+    senderId?: string,
+    fallbackLabel?: string,
+    conversationId?: string,
+  ) => {
+    if (senderId && senderId === user?.id) return user?.username || "You";
+    if (senderId && usernamesRef.current[senderId])
+      return usernamesRef.current[senderId];
+
+    const targetConversationId =
+      conversationId || selectedConversationRef.current;
+    if (senderId && targetConversationId?.startsWith("dm:")) {
+      const otherUserId = getDmOtherUserId(targetConversationId);
+      if (otherUserId === senderId) {
+        return resolveConversationDisplayName(targetConversationId);
+      }
+    }
+
+    if (fallbackLabel && !isLikelyUserId(fallbackLabel)) return fallbackLabel;
+    return senderId || fallbackLabel || "Unknown";
+  };
+
+  const isSameCalendarDay = (a: string, b: string) => {
+    const first = new Date(a);
+    const second = new Date(b);
+    return (
+      first.getFullYear() === second.getFullYear() &&
+      first.getMonth() === second.getMonth() &&
+      first.getDate() === second.getDate()
+    );
+  };
+
+  const formatMessageTime = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  };
+
+  const shouldShowSenderLabel = (
+    currentMessage: Message,
+    previousMessage?: Message,
+  ) => {
+    if (!previousMessage) return true;
+    if ((currentMessage.senderId || "") !== (previousMessage.senderId || "")) {
+      return true;
+    }
+
+    const currentMillis = new Date(currentMessage.timestamp).getTime();
+    const previousMillis = new Date(previousMessage.timestamp).getTime();
+    if (Number.isNaN(currentMillis) || Number.isNaN(previousMillis))
+      return true;
+
+    return currentMillis - previousMillis > THREAD_GROUP_WINDOW_MS;
+  };
+
+  const shouldShowGroupedTimestamp = (
+    currentMessage: Message,
+    previousMessage?: Message,
+  ) => {
+    if (!previousMessage) return true;
+
+    const currentMillis = new Date(currentMessage.timestamp).getTime();
+    const previousMillis = new Date(previousMessage.timestamp).getTime();
+    if (Number.isNaN(currentMillis) || Number.isNaN(previousMillis))
+      return true;
+
+    return currentMillis - previousMillis > THREAD_GROUP_WINDOW_MS;
+  };
+
+
+  const getConversationIdForMessage = (message: {
+    channelId?: string | null;
+    senderId?: string;
+    receiverId?: string | null;
+  }) => {
+    if (message.channelId) return normalizeConversationId(message.channelId);
+    if (message.senderId && message.receiverId) {
+      return normalizeConversationId(
+        `dm:${message.senderId}:${message.receiverId}`,
+      );
+    }
+    return "";
+  };
+
+  const getConversationPreview = (message: {
+    content?: string;
+    messageType?: string;
+  }) => {
+    if (message.messageType === "gif") return "GIF";
+    if (message.messageType === "image") return "Image";
+    if (message.messageType === "video") return "Video";
+    return message.content || "";
+  };
+
+  const sortConversationsByRecent = (items: Conversation[]) => {
+    return [...items].sort((a, b) => {
+      const aTime = new Date(a.timestamp || 0).getTime();
+      const bTime = new Date(b.timestamp || 0).getTime();
+      return bTime - aTime;
+    });
+  };
+
+  const upsertConversationActivity = (
+    conversationId: string,
+    message: {
+      content?: string;
+      messageType?: string;
+      timestamp?: string;
+      senderId?: string;
+      receiverId?: string | null;
+    },
+  ) => {
+    if (!conversationId) return;
+    const preview = getConversationPreview(message);
+    const timestamp = message.timestamp || new Date().toISOString();
+
+    setConversationsState((prev) => {
+      const idx = prev.findIndex((c) => c.id === conversationId);
+      if (idx === -1) {
+        const fallbackName = resolveConversationDisplayName(conversationId);
+        const created: Conversation = {
+          id: conversationId,
+          name: fallbackName,
+          type: conversationId.startsWith("dm:") ? "direct" : "group",
+          lastMessage: preview,
+          timestamp,
+          unread: 0,
+        };
+        return sortConversationsByRecent([created, ...prev]);
+      }
+
+      const copy = [...prev];
+      copy[idx] = {
+        ...copy[idx],
+        lastMessage: preview,
+        timestamp,
+      };
+      return sortConversationsByRecent(copy);
+    });
+  };
+
+  const formatSidebarTimestamp = (timestamp?: string) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    const now = new Date();
+
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const targetDay = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+    );
+    const dayDiff = Math.round(
+      (today.getTime() - targetDay.getTime()) / 86400000,
+    );
+
+    if (dayDiff === 0) {
+      return date.toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    }
+    if (dayDiff === 1) return "Yesterday";
+    return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  };
+
+  const formatMessageDayLabel = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const thatDay = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+    );
+    const dayDiff = Math.round(
+      (today.getTime() - thatDay.getTime()) / 86400000,
+    );
+
+    if (dayDiff === 0) return "Today";
+    if (dayDiff === 1) return "Yesterday";
+    return date.toLocaleDateString([], {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const resolveMediaUrl = (mediaUrl?: string | null) => {
+    if (!mediaUrl) return "";
+    if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
+      return mediaUrl;
+    }
+    return `${API_URL}${mediaUrl.startsWith("/") ? "" : "/"}${mediaUrl}`;
+  };
+
+  const dedupeMessagesById = (messages: Message[]) => {
+    const map = new Map<string, Message>();
+    for (const message of messages) {
+      if (!message?.id) continue;
+      map.set(message.id, message);
+    }
+    return Array.from(map.values()).sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    );
+  };
+
+  const resolveNavigationConversationId = (value: string) => {
+    if (!value) return null;
+
+    if (value.startsWith("dm:")) {
+      return normalizeConversationId(value);
+    }
+
+    if (value.startsWith("user:")) {
+      return null;
+    }
+
+    return normalizeConversationId(value);
+  };
+
+  const ensureDmConversation = async (
+    targetUserId: string,
+    fallbackName?: string,
+  ) => {
+    const authToken = token || localStorage.getItem("token");
+    if (!authToken || !targetUserId) return null;
+
+    const res = await fetch(
+      `${API_URL}/messages/conversations/dm/${targetUserId}`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      },
+    );
+
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      throw new Error(payload?.error || "failed to start conversation");
+    }
+
+    const payload = await res.json();
+    const conversation = payload?.data;
+    if (!conversation) return null;
+
+    const normalizedId = normalizeConversationId(
+      conversation.id || conversation.key || "",
+    );
+    if (!normalizedId) return null;
+
+    const otherUser = conversation.otherUser;
+    const otherName =
+      otherUser?.displayName ||
+      otherUser?.username ||
+      fallbackName ||
+      "Direct Message";
+    const otherImage = otherUser?.profileImageUrl || otherUser?.avatarUrl || "";
+
+    if (otherUser?.id && otherName) {
+      rememberUserName(otherUser.id, otherName);
+    }
+    if (otherUser?.id && otherImage) {
+      rememberUserImage(otherUser.id, otherImage);
+    }
+
+    setConversationsState((prev) => {
+      const next = [...prev];
+      const idx = next.findIndex((c) => c.id === normalizedId);
+      const updatedConversation: Conversation = {
+        id: normalizedId,
+        name: otherName,
+        type: "direct",
+        lastMessage: conversation.lastMessage || "",
+        timestamp:
+          conversation.updatedAt ||
+          conversation.lastMessageAt ||
+          conversation.createdAt ||
+          "",
+        unread: 0,
+        avatar: otherImage || undefined,
+      };
+
+      if (idx === -1) {
+        next.unshift(updatedConversation);
+      } else {
+        next[idx] = { ...next[idx], ...updatedConversation };
+      }
+
+      return sortConversationsByRecent(next);
+    });
+
+    return normalizedId;
+  };
+
+  const messageBelongsToConversation = (msg: any, conversationId: string) => {
+    if (!conversationId) return false;
+    const normalizedConversationId = normalizeConversationId(conversationId);
+
+    if (normalizedConversationId.startsWith("dm:")) {
+      const messageChannelId = normalizeConversationId(
+        String(msg.channelId || ""),
+      );
+      if (messageChannelId && messageChannelId === normalizedConversationId) {
+        return true;
+      }
+
+      if (msg.senderId && msg.receiverId) {
+        const pair = [msg.senderId, msg.receiverId].sort().join(":");
+        return `dm:${pair}` === normalizedConversationId;
+      }
+
+      return false;
+    }
+
+    return String(msg.channelId || "") === normalizedConversationId;
+  };
+
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
+
+  useEffect(() => {
+    usernamesRef.current = usernamesById;
+  }, [usernamesById]);
+
+  useEffect(() => {
+    userImagesRef.current = userImagesById;
+  }, [userImagesById]);
 
   useEffect(() => {
     // connect socket with token auth
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
     const authToken = token || localStorage.getItem("token");
-    socketRef.current = io(apiUrl, {
+    socketRef.current = io(API_URL, {
       auth: { token: authToken },
       withCredentials: true,
     });
@@ -97,14 +544,31 @@ export function Messages({
     s.on("message", (msg: any) => {
       // map incoming server message to local Message shape
       try {
+        const currentConversation = selectedConversationRef.current;
+        if (!messageBelongsToConversation(msg, currentConversation)) {
+          return;
+        }
+
         const mapped: Message = {
           id: msg.id,
-          sender: msg.senderId || msg.sender || "unknown",
+          senderId: msg.senderId,
+          sender: resolveSenderLabel(
+            msg.senderId,
+            msg.sender,
+            currentConversation,
+          ),
           content: msg.content || msg.text || msg.message?.content || "",
           timestamp: msg.createdAt || new Date().toISOString(),
+          replyToId: msg.replyToId || null,
+          messageType: msg.messageType || "text",
+          mediaUrl: msg.mediaUrl || null,
           isMe: msg.senderId === user?.id,
         };
         setMessagesState((prev) => {
+          if (prev.some((m) => m.id === mapped.id)) {
+            return prev;
+          }
+
           // if this is our own sent message, try to replace any temp optimistic message
           if (mapped.isMe) {
             const idx = prev.findIndex(
@@ -113,11 +577,34 @@ export function Messages({
             if (idx !== -1) {
               const copy = [...prev];
               copy[idx] = mapped;
-              return copy;
+              return dedupeMessagesById(copy);
             }
           }
-          return [...prev, mapped];
+          return dedupeMessagesById([...prev, mapped]);
         });
+
+        const conversationForMessage = getConversationIdForMessage({
+          channelId: msg.channelId,
+          senderId: msg.senderId,
+          receiverId: msg.receiverId,
+        });
+        upsertConversationActivity(conversationForMessage, {
+          content: mapped.content,
+          messageType: mapped.messageType,
+          timestamp: mapped.timestamp,
+          senderId: msg.senderId,
+          receiverId: msg.receiverId,
+        });
+
+        if (
+          msg.senderId &&
+          (msg.senderProfileImageUrl || msg.senderAvatarUrl)
+        ) {
+          rememberUserImage(
+            msg.senderId,
+            msg.senderProfileImageUrl || msg.senderAvatarUrl,
+          );
+        }
       } catch (e) {
         console.log("failed mapping incoming message", e, msg);
       }
@@ -148,41 +635,89 @@ export function Messages({
     [],
   );
 
+  useEffect(() => {
+    const map: Record<string, string> = {};
+    for (const conv of conversationsState) {
+      map[conv.id] = conv.name;
+    }
+    conversationNamesRef.current = map;
+  }, [conversationsState]);
+
   // load real conversations from backend for this user
   useEffect(() => {
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
     const authToken = token || localStorage.getItem("token");
     if (!authToken) return;
-    fetch(`${apiUrl}/messages/conversations`, {
+    fetch(`${API_URL}/messages/conversations`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then((res) => res.json())
       .then((data) => {
-        const items = (data.data || []).map((c: any) => ({
-          id:
-            c.id ??
-            c.channelId ??
-            c.conversationId ??
-            (c.type === "dm" && c.members ? `dm:${c.members.join(":")}` : ""),
-          name:
-            c.name ??
-            c.displayName ??
-            (c.type === "dm" && c.members
-              ? c.members
-                  .filter((m: string) => m !== (user?.username || user?.id))
-                  .join(", ")
-              : "Conversation"),
-          type:
-            c.type === "hub" ? "hub" : c.type === "group" ? "group" : "direct",
-          lastMessage: c.lastMessage ?? c.last_message ?? c.preview ?? "",
-          timestamp: c.updatedAt ?? c.lastMessageAt ?? c.createdAt ?? "",
-          unread: c.unread ?? 0,
-          online: c.online ?? false,
-          avatar: c.avatarUrl ?? undefined,
-          game: c.game,
-          pinned: c.pinned ?? false,
-        }));
-        setConversationsState(items);
+        const discoveredNames: Record<string, string> = {};
+        const discoveredImages: Record<string, string> = {};
+        const items = (data.data || [])
+          .map((c: any) => {
+            const normalizedId = normalizeConversationId(
+              c.id ??
+                c.channelId ??
+                c.conversationId ??
+                (c.type === "dm" && c.members
+                  ? `dm:${[...c.members].sort().join(":")}`
+                  : ""),
+            );
+            const fallbackDmName =
+              c.type === "dm" && c.members
+                ? c.members
+                    .filter((m: string) => m !== (user?.id || user?.username))
+                    .join(", ")
+                : "Conversation";
+
+            if (c.otherUser?.id) {
+              const otherName =
+                c.otherUser?.username ||
+                c.otherUser?.displayName ||
+                c.name ||
+                "";
+              if (otherName) discoveredNames[c.otherUser.id] = otherName;
+              const otherImage =
+                c.otherUser?.profileImageUrl ||
+                c.otherUser?.avatarUrl ||
+                c.profileImageUrl ||
+                c.avatarUrl ||
+                "";
+              if (otherImage) discoveredImages[c.otherUser.id] = otherImage;
+            }
+
+            return {
+              id: normalizedId,
+              name:
+                c.name ??
+                c.displayName ??
+                c.otherUser?.displayName ??
+                c.otherUser?.username ??
+                fallbackDmName,
+              type:
+                c.type === "hub"
+                  ? "hub"
+                  : c.type === "group" || c.type === "channel"
+                    ? "group"
+                    : "direct",
+              lastMessage: c.lastMessage ?? c.last_message ?? c.preview ?? "",
+              timestamp: c.updatedAt ?? c.lastMessageAt ?? c.createdAt ?? "",
+              unread: c.unread ?? 0,
+              online: c.online ?? false,
+              avatar: c.profileImageUrl ?? c.avatarUrl ?? undefined,
+              game: c.game,
+              pinned: c.pinned ?? false,
+            };
+          })
+          .filter((c: Conversation) => Boolean(c.id));
+        setConversationsState(sortConversationsByRecent(items));
+        if (Object.keys(discoveredNames).length > 0) {
+          setUsernamesById((prev) => ({ ...prev, ...discoveredNames }));
+        }
+        if (Object.keys(discoveredImages).length > 0) {
+          setUserImagesById((prev) => ({ ...prev, ...discoveredImages }));
+        }
       })
       .catch((err) => console.error("failed loading conversations", err));
   }, [token, user?.id]);
@@ -190,13 +725,35 @@ export function Messages({
   // load friends for current user and show them at top of sidebar
   const [friendsList, setFriendsList] = useState<any[]>([]);
   useEffect(() => {
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
     const authToken = token || localStorage.getItem("token");
     if (!authToken) return;
-    fetch(`${apiUrl}/users/me/friends`, { headers: { Authorization: `Bearer ${authToken}` } })
+    fetch(`${API_URL}/users/me/friends`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
       .then((r) => r.json())
-      .then((d) => setFriendsList(d.friends || []))
-      .catch((e) => console.error('failed loading friends', e));
+      .then((d) => {
+        const friends = d.friends || [];
+        setFriendsList(friends);
+        const discoveredNames: Record<string, string> = {};
+        const discoveredImages: Record<string, string> = {};
+        for (const friend of friends) {
+          const friendName = friend?.username || friend?.profile?.displayName;
+          if (friend?.id && friendName && !isLikelyUserId(friendName)) {
+            discoveredNames[friend.id] = friendName;
+          }
+          const friendImage = friend?.profileImageUrl || friend?.avatarUrl;
+          if (friend?.id && friendImage) {
+            discoveredImages[friend.id] = friendImage;
+          }
+        }
+        if (Object.keys(discoveredNames).length > 0) {
+          setUsernamesById((prev) => ({ ...prev, ...discoveredNames }));
+        }
+        if (Object.keys(discoveredImages).length > 0) {
+          setUserImagesById((prev) => ({ ...prev, ...discoveredImages }));
+        }
+      })
+      .catch((e) => console.error("failed loading friends", e));
   }, [token]);
 
   // removed mock messages; real messages are loaded into `messagesState` via `handleConversationClick`
@@ -220,13 +777,7 @@ export function Messages({
   const activeConversation = selectedConversation
     ? (selectedChat ?? {
         id: selectedConversation,
-        name: selectedConversation.startsWith("dm:")
-          ? selectedConversation
-              .replace(/^dm:/, "")
-              .split(":")
-              .filter(Boolean)
-              .join(", ")
-          : selectedConversation || "Conversation",
+        name: resolveConversationDisplayName(selectedConversation),
         type: selectedConversation.startsWith("dm:") ? "direct" : "group",
         lastMessage: "",
         timestamp: "",
@@ -234,28 +785,57 @@ export function Messages({
       })
     : null;
 
-  const handleSendMessage = () => {
-    if (!messageInput.trim()) return;
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const sendMessage = async ({
+    content = "",
+    messageType = "text",
+    mediaUrl = null,
+  }: {
+    content?: string;
+    messageType?: "text" | "gif" | "image" | "video";
+    mediaUrl?: string | null;
+  }) => {
+    const trimmedContent = content.trim();
+    if (!trimmedContent && !mediaUrl) return;
+
     const authToken = token || localStorage.getItem("token");
-    const content = messageInput.trim();
-    // optimistic UI: append temp message immediately
+    if (!authToken || !selectedConversation) return;
+
     const tempId = `temp-${Date.now()}`;
     const tempMessage: Message = {
       id: tempId,
+      senderId: user?.id,
       sender: user?.username || "Me",
-      content,
+      content: trimmedContent,
       timestamp: new Date().toISOString(),
+      messageType,
+      mediaUrl,
       isMe: true,
     };
-    setMessagesState((prev) => [...prev, tempMessage]);
 
-    // persist message via API; server will broadcast saved message
-    const body: any = { conversationId: selectedConversation, content };
+    const normalizedConversationId =
+      normalizeConversationId(selectedConversation);
+    const receiverId = getDmOtherUserId(normalizedConversationId);
+
+    setMessagesState((prev) => [...prev, tempMessage]);
+    upsertConversationActivity(normalizedConversationId, {
+      content: tempMessage.content,
+      messageType: tempMessage.messageType,
+      timestamp: tempMessage.timestamp,
+      senderId: tempMessage.senderId,
+      receiverId,
+    });
+
+    const body: any = {
+      conversationId: normalizedConversationId,
+      content: trimmedContent,
+      messageType,
+      mediaUrl,
+    };
+    if (receiverId) body.receiverId = receiverId;
     if (replyingToId && !replyingToId.startsWith("temp-"))
       body.replyToId = replyingToId;
 
-    fetch(`${apiUrl}/messages`, {
+    await fetch(`${API_URL}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -264,10 +844,57 @@ export function Messages({
       body: JSON.stringify(body),
     }).catch((err) => {
       console.error("send message error", err);
-      // on error, remove optimistic message
       setMessagesState((prev) => prev.filter((m) => m.id !== tempId));
     });
-    setMessageInput("");
+
+    if (messageType === "text") setMessageInput("");
+  };
+
+  const handleSendMessage = () => {
+    if (!messageInput.trim()) return;
+    sendMessage({ content: messageInput, messageType: "text" });
+  };
+
+  const handleGifSelect = (gifUrl: string) => {
+    sendMessage({ messageType: "gif", mediaUrl: gifUrl });
+    setShowGifPicker(false);
+  };
+
+  const handleMediaUpload = async (file: File) => {
+    const authToken = token || localStorage.getItem("token");
+    if (!authToken) return;
+
+    setIsUploadingMedia(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const res = await fetch(`${API_URL}/messages/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: form,
+      });
+      if (!res.ok) throw new Error("upload failed");
+
+      const data = await res.json();
+      await sendMessage({
+        messageType: data.messageType,
+        mediaUrl: data.mediaUrl,
+      });
+    } catch (error) {
+      console.error("media upload failed", error);
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
+  const handleFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await handleMediaUpload(file);
+    event.target.value = "";
   };
 
   const startReply = (id: string) => {
@@ -283,7 +910,6 @@ export function Messages({
 
   const submitEdit = async () => {
     if (!editingId) return;
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
     const authToken = token || localStorage.getItem("token");
     // if this is an optimistic (temp) message, update locally only
     if (editingId.startsWith("temp-")) {
@@ -297,7 +923,7 @@ export function Messages({
       return;
     }
     try {
-      const res = await fetch(`${apiUrl}/messages/${editingId}`, {
+      const res = await fetch(`${API_URL}/messages/${editingId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -327,10 +953,9 @@ export function Messages({
       setMessagesState((prev) => prev.filter((m) => m.id !== id));
       return;
     }
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
     const authToken = token || localStorage.getItem("token");
     try {
-      const res = await fetch(`${apiUrl}/messages/${id}`, {
+      const res = await fetch(`${API_URL}/messages/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${authToken}` },
       });
@@ -352,51 +977,85 @@ export function Messages({
   };
 
   const handleConversationClick = async (conversationId: string) => {
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
+    const normalizedConversationId = normalizeConversationId(conversationId);
     const authToken = token || localStorage.getItem("token");
 
-    // leave previous channel
-    if (socketRef.current && selectedConversation) {
-      socketRef.current.emit("leave", `channel:${selectedConversation}`);
+    if (!normalizedConversationId) return false;
+
+    const previousConversation = prevConversationRef.current;
+    if (
+      socketRef.current &&
+      previousConversation &&
+      previousConversation !== normalizedConversationId
+    ) {
+      socketRef.current.emit("leave", `channel:${previousConversation}`);
     }
+
+    setSelectedConversation(normalizedConversationId);
+    prevConversationRef.current = normalizedConversationId;
+    setShowMobileChat(true);
+
+    if (!authToken) return false;
 
     // join new channel
     if (socketRef.current) {
-      socketRef.current.emit("join", `channel:${conversationId}`);
+      socketRef.current.emit("join", `channel:${normalizedConversationId}`);
     }
 
     // fetch existing messages for this conversation
     try {
-      const res = await fetch(`${apiUrl}/messages/${conversationId}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
+      const res = await fetch(
+        `${API_URL}/messages/${normalizedConversationId}`,
+        {
+          headers: { Authorization: `Bearer ${authToken}` },
+        },
+      );
       if (res.ok) {
         const data = await res.json();
         console.debug(
           "Messages: fetched",
           (data.data || []).length,
           "messages for",
-          conversationId,
+          normalizedConversationId,
         );
         const mapped = (data.data || []).map((m: any) => ({
           id: m.id,
-          sender: m.senderId,
+          senderId: m.senderId,
+          sender: resolveSenderLabel(
+            m.senderId,
+            m.sender?.username,
+            normalizedConversationId,
+          ),
           content: m.content,
           timestamp: m.createdAt,
+          replyToId: m.replyToId || null,
+          messageType: m.messageType || "text",
+          mediaUrl: m.mediaUrl || null,
           isMe: m.senderId === user?.id,
         }));
-        setMessagesState(mapped);
+        setMessagesState(dedupeMessagesById(mapped));
+      } else {
+        setMessagesState([]);
       }
     } catch (e) {
       console.error("failed loading conversation", e);
+      setMessagesState([]);
     }
 
-    setSelectedConversation(conversationId);
-    setShowMobileChat(true);
+    return true;
   };
 
   const handleBackToList = () => {
     setShowMobileChat(false);
+  };
+
+  const handleOpenActiveDmProfile = () => {
+    if (!onNavigate || !activeConversation?.id) return;
+    if (activeConversation.type !== "direct") return;
+
+    const otherUserId = getDmOtherUserId(activeConversation.id);
+    if (!otherUserId) return;
+    onNavigate(`profile-${otherUserId}`);
   };
 
   // when conversations load, auto-select the first one if none selected
@@ -412,43 +1071,44 @@ export function Messages({
 
   // if parent requested opening a specific conversation (eg. from search), open it on mount
   useEffect(() => {
-    if (initialConversationId) {
-      console.debug(
-        "Messages: initialConversationId received:",
+    if (!initialConversationId) return;
+
+    let isCancelled = false;
+    (async () => {
+      const navMeta = getUserNavigationMeta(initialConversationId);
+      if (navMeta?.targetUserId && navMeta?.targetName) {
+        rememberUserName(navMeta.targetUserId, navMeta.targetName);
+      }
+
+      let conversationToOpen = resolveNavigationConversationId(
         initialConversationId,
       );
-      handleConversationClick(initialConversationId);
-
-      // ensure the conversation appears in the sidebar even if there are no stored messages yet
-      setConversationsState((prev) => {
-        if (prev.find((c) => c.id === initialConversationId)) return prev;
-        // derive a friendly name for dm: keys by showing the other participant id
-        let name = initialConversationId;
-        if (initialConversationId.startsWith("dm:")) {
-          const parts = initialConversationId
-            .replace(/^dm:/, "")
-            .split(":")
-            .filter(Boolean);
-          const other = parts.find((p) => p !== (user?.id || user?.username));
-          name = other ? other : parts.join(", ");
+      if (navMeta?.targetUserId) {
+        try {
+          conversationToOpen = await ensureDmConversation(
+            navMeta.targetUserId,
+            navMeta.targetName,
+          );
+        } catch (error) {
+          console.error("failed ensuring DM conversation", error);
+          conversationToOpen = null;
         }
-        const stub = {
-          id: initialConversationId,
-          name,
-          type: initialConversationId.startsWith("dm:") ? "direct" : "group",
-          lastMessage: "",
-          timestamp: "",
-          unread: 0,
-        } as Conversation;
-        return [stub, ...prev];
-      });
+      }
 
-      // inform parent that we've consumed the initial conversation id so it won't re-trigger
+      if (!conversationToOpen || isCancelled) return;
+
+      const opened = await handleConversationClick(conversationToOpen);
+      if (!opened || isCancelled) return;
+
       if (typeof onInitialConsumed === "function") {
         onInitialConsumed();
       }
-    }
-  }, [initialConversationId]);
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [initialConversationId, token, user?.id]);
 
   const filteredConversations = conversationsState.filter((conv) =>
     conv.name.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -456,6 +1116,34 @@ export function Messages({
 
   return (
     <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime,.mov"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      {showGifPicker && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl bg-card border border-border rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">
+                Send a GIF
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowGifPicker(false)}
+              >
+                Close
+              </Button>
+            </div>
+            <GifPicker apiKey={GIPHY_API_KEY} onSelect={handleGifSelect} />
+          </div>
+        </div>
+      )}
+
       {/* Mobile View */}
       {!isDesktop && (
         <div className="fixed inset-0 top-0 bottom-16 flex flex-col bg-background overflow-hidden">
@@ -573,11 +1261,17 @@ export function Messages({
                                     stiffness: 300,
                                   }}
                                 >
-                                  <Avatar className="h-12 w-12 border-2 border-primary/20">
-                                    <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                                      {conversation.name.charAt(0)}
-                                    </AvatarFallback>
-                                  </Avatar>
+                                  <UserAvatar
+                                    className="h-12 w-12 border-2 border-primary/20"
+                                    name={conversation.name}
+                                    username={conversation.name}
+                                    imageUrl={
+                                      conversation.avatar ||
+                                      resolveConversationAvatarUrl(
+                                        conversation.id,
+                                      )
+                                    }
+                                  />
                                 </motion.div>
                                 {conversation.online && (
                                   <motion.div
@@ -628,7 +1322,9 @@ export function Messages({
                                       </motion.div>
                                     )}
                                     <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                      {conversation.timestamp}
+                                      {formatSidebarTimestamp(
+                                        conversation.timestamp,
+                                      )}
                                     </span>
                                   </div>
                                 </div>
@@ -684,264 +1380,296 @@ export function Messages({
                         </Button>
                       </motion.div>
 
-                      <motion.div
-                        whileHover={{ scale: 1.05 }}
-                        transition={{ type: "spring", stiffness: 300 }}
+                      <button
+                        type="button"
+                        onClick={handleOpenActiveDmProfile}
+                        className={`flex items-center space-x-3 flex-1 min-w-0 text-left ${
+                          activeConversation.type === "direct"
+                            ? "cursor-pointer"
+                            : "cursor-default"
+                        }`}
+                        disabled={activeConversation.type !== "direct"}
                       >
-                        <Avatar className="h-11 w-11 border-2 border-primary/20">
-                          <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                            {activeConversation.name.charAt(0)}
-                          </AvatarFallback>
-                        </Avatar>
-                      </motion.div>
+                        <motion.div
+                          whileHover={{ scale: 1.05 }}
+                          transition={{ type: "spring", stiffness: 300 }}
+                        >
+                          <UserAvatar
+                            className="h-11 w-11 border-2 border-primary/20"
+                            name={activeConversation.name}
+                            username={activeConversation.name}
+                            imageUrl={resolveConversationAvatarUrl(
+                              activeConversation.id,
+                            )}
+                          />
+                        </motion.div>
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center space-x-2">
-                          {getConversationIcon(activeConversation.type)}
-                          <h3 className="font-semibold text-foreground truncate">
-                            {activeConversation.name}
-                          </h3>
-                          {activeConversation.online && (
-                            <motion.div
-                              initial={{ scale: 0 }}
-                              animate={{ scale: 1 }}
-                              transition={{ type: "spring", stiffness: 300 }}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-2">
+                            {getConversationIcon(activeConversation.type)}
+                            <h3 className="font-semibold text-foreground truncate">
+                              {activeConversation.name}
+                            </h3>
+                            {activeConversation.online && (
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{ type: "spring", stiffness: 300 }}
+                              >
+                                <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs backdrop-blur-sm">
+                                  Online
+                                </Badge>
+                              </motion.div>
+                            )}
+                          </div>
+                          {activeConversation.game && (
+                            <motion.p
+                              initial={{ opacity: 0, y: -5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="text-xs text-muted-foreground"
                             >
-                              <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs backdrop-blur-sm">
-                                Online
-                              </Badge>
-                            </motion.div>
+                              Playing {activeConversation.game}
+                            </motion.p>
                           )}
                         </div>
-                        {selectedChat.game && (
-                          <motion.p
-                            initial={{ opacity: 0, y: -5 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="text-xs text-muted-foreground"
-                          >
-                            Playing {selectedChat.game}
-                          </motion.p>
-                        )}
-                      </div>
+                      </button>
                     </div>
 
-                    <div className="flex items-center space-x-1">
-                      {selectedChat.type === "direct" && (
-                        <>
-                          <motion.div
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                          >
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
-                            >
-                              <Phone className="h-4 w-4" />
-                            </Button>
-                          </motion.div>
-                          <motion.div
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                          >
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
-                            >
-                              <Video className="h-4 w-4" />
-                            </Button>
-                          </motion.div>
-                        </>
-                      )}
-                      <motion.div
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                      >
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
+                    {activeConversation.type !== "direct" && (
+                      <div className="flex items-center space-x-1">
+                        <motion.div
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
                         >
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </motion.div>
-                    </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </motion.div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* Messages Area */}
                 <ScrollArea className="flex-1 p-4 overflow-y-auto">
-                  <div className="space-y-4 pb-4">
+                  <div
+                    key={`mobile-thread-${selectedConversation || "none"}`}
+                    className="space-y-0 pb-2 dm-thread-transition"
+                  >
                     <AnimatePresence>
                       {messagesState.map((message, index) => (
-                        <ContextMenu key={message.id}>
-                          <ContextMenuTrigger asChild>
-                            <motion.div
-                              initial={{ opacity: 0, y: 20, scale: 0.9 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              transition={{
-                                delay: index * 0.05,
-                                type: "spring",
-                                stiffness: 200,
-                              }}
-                              className={`flex ${message.isMe ? "justify-end" : "justify-start"}`}
-                            >
-                              <div
-                                className={`max-w-[80%] ${message.isMe ? "order-2" : "order-1"}`}
+                        <React.Fragment key={message.id}>
+                          {(index === 0 ||
+                            !isSameCalendarDay(
+                              message.timestamp,
+                              messagesState[index - 1].timestamp,
+                            )) && (
+                            <div className="flex justify-center py-1">
+                              <span className="text-xs text-muted-foreground bg-muted/40 px-3 py-1 rounded-full">
+                                {formatMessageDayLabel(message.timestamp)}
+                              </span>
+                            </div>
+                          )}
+                          {shouldShowGroupedTimestamp(
+                            message,
+                            messagesState[index - 1],
+                          ) && (
+                            <div className="flex justify-center py-0.5">
+                              <span className="text-[11px] text-muted-foreground bg-muted/30 px-2.5 py-1 rounded-full">
+                                {formatMessageTime(message.timestamp)}
+                              </span>
+                            </div>
+                          )}
+                          <ContextMenu>
+                            <ContextMenuTrigger asChild>
+                              <motion.div
+                                initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                transition={{
+                                  delay: index * 0.05,
+                                  type: "spring",
+                                  stiffness: 200,
+                                }}
+                                className={`flex ${message.isMe ? "justify-end" : "justify-start"} ${
+                                  index === 0
+                                    ? ""
+                                    : !shouldShowGroupedTimestamp(
+                                          message,
+                                          messagesState[index - 1],
+                                        ) &&
+                                        (message.senderId || "") ===
+                                          (messagesState[index - 1]?.senderId ||
+                                            "")
+                                      ? "mt-0.5"
+                                      : "mt-1.5"
+                                }`}
                               >
-                                {!message.isMe && (
-                                  <motion.div
-                                    initial={{ opacity: 0, x: -10 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    transition={{ delay: index * 0.05 + 0.1 }}
-                                    className="flex items-center space-x-2 mb-1.5"
-                                  >
-                                    <Avatar className="h-6 w-6">
-                                      <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                                        {message.sender.charAt(0)}
-                                      </AvatarFallback>
-                                    </Avatar>
-                                    <span className="text-sm font-medium text-foreground">
-                                      {message.sender}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground">
-                                      {message.timestamp}
-                                    </span>
-                                  </motion.div>
-                                )}
-                                <motion.div
-                                  whileHover={{ scale: 1.02 }}
-                                  className={`rounded-2xl px-4 py-2.5 transition-all duration-300 backdrop-blur-sm ${
-                                    message.isMe
-                                      ? "bg-primary text-primary-foreground ml-auto shadow-lg shadow-primary/20"
-                                      : "bg-muted/70 text-foreground shadow-md"
-                                  }`}
+                                <div
+                                  className={`max-w-[74%] ${message.isMe ? "order-2" : "order-1"}`}
                                 >
-                                  {message.replyToId && (
-                                    <div className="mb-2 text-xs text-muted-foreground/80 italic rounded p-2 bg-muted/20">
-                                      In reply to:{" "}
-                                      {messagesState.find(
-                                        (x) => x.id === message.replyToId,
-                                      )?.content || "..."}
-                                    </div>
-                                  )}
-
-                                  {editingId === message.id ? (
-                                    <div>
-                                      <Input
-                                        value={editingText}
-                                        onChange={(e) =>
-                                          setEditingText(
-                                            (e.target as HTMLInputElement)
-                                              .value,
-                                          )
-                                        }
-                                      />
-                                      <div className="flex justify-center space-x-2 mt-2">
-                                        <Button
-                                          onClick={submitEdit}
-                                          className="ring-2 ring-white/10"
-                                        >
-                                          Save
-                                        </Button>
-                                        <Button
-                                          variant="ghost"
-                                          onClick={() => {
-                                            setEditingId(null);
-                                            setEditingText("");
-                                          }}
-                                          className="ring-2 ring-white/6"
-                                        >
-                                          Cancel
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <>
-                                      <p className="text-sm leading-relaxed">
-                                        {message.content}
-                                      </p>
-                                      <div className="flex items-center justify-between mt-2">
-                                        <div className="text-xs opacity-75">
-                                          {message.isMe ? (
-                                            <span className="text-right">
-                                              {message.timestamp}
-                                            </span>
-                                          ) : (
-                                            message.timestamp
+                                  {!message.isMe &&
+                                    shouldShowSenderLabel(
+                                      message,
+                                      messagesState[index - 1],
+                                    ) && (
+                                      <motion.div
+                                        initial={{ opacity: 0, x: -10 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        transition={{
+                                          delay: index * 0.05 + 0.1,
+                                        }}
+                                        className="flex items-center space-x-2 mb-0.5"
+                                      >
+                                        <UserAvatar
+                                          className="h-6 w-6 -mt-0.5"
+                                          name={message.sender}
+                                          username={message.sender}
+                                          imageUrl={resolveSenderAvatarUrl(
+                                            message.senderId,
+                                            activeConversation?.id,
                                           )}
-                                        </div>
-                                        <div className="space-x-2">
+                                          fallbackClassName="bg-primary/10 text-primary text-xs"
+                                        />
+                                        <span className="text-sm font-medium text-foreground">
+                                          {message.sender}
+                                        </span>
+                                      </motion.div>
+                                    )}
+                                  <motion.div
+                                    whileHover={{ scale: 1.02 }}
+                                    className={`w-fit max-w-full rounded-2xl px-3 py-1.5 transition-all duration-300 backdrop-blur-sm border border-black/35 dark:border-white/55 ${
+                                      message.isMe
+                                        ? "ml-auto bg-primary text-primary-foreground shadow-lg shadow-primary/20"
+                                        : "mr-auto bg-muted/70 text-foreground shadow-md"
+                                    }`}
+                                  >
+                                    {message.replyToId && (
+                                      <div className="mb-2 text-xs text-muted-foreground/80 italic rounded p-2 bg-muted/20">
+                                        In reply to:{" "}
+                                        {messagesState.find(
+                                          (x) => x.id === message.replyToId,
+                                        )?.content || "..."}
+                                      </div>
+                                    )}
+
+                                    {editingId === message.id ? (
+                                      <div>
+                                        <Input
+                                          value={editingText}
+                                          onChange={(e) =>
+                                            setEditingText(
+                                              (e.target as HTMLInputElement)
+                                                .value,
+                                            )
+                                          }
+                                        />
+                                        <div className="flex justify-center space-x-2 mt-2">
+                                          <Button
+                                            onClick={submitEdit}
+                                            className="ring-2 ring-white/10"
+                                          >
+                                            Save
+                                          </Button>
                                           <Button
                                             variant="ghost"
-                                            size="icon"
-                                            onClick={() =>
-                                              startReply(message.id)
-                                            }
+                                            onClick={() => {
+                                              setEditingId(null);
+                                              setEditingText("");
+                                            }}
+                                            className="ring-2 ring-white/6"
                                           >
-                                            <MoreVertical className="h-4 w-4" />
+                                            Cancel
                                           </Button>
-                                          {message.isMe && (
-                                            <>
-                                              <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={() =>
-                                                  startEdit(
-                                                    message.id,
-                                                    message.content,
-                                                  )
-                                                }
-                                              >
-                                                Edit
-                                              </Button>
-                                              <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={() =>
-                                                  deleteMessage(message.id)
-                                                }
-                                              >
-                                                Delete
-                                              </Button>
-                                            </>
-                                          )}
                                         </div>
                                       </div>
-                                    </>
-                                  )}
-                                </motion.div>
-                              </div>
-                            </motion.div>
-                          </ContextMenuTrigger>
+                                    ) : (
+                                      <>
+                                        {message.messageType === "gif" &&
+                                          message.mediaUrl && (
+                                            <img
+                                              src={resolveMediaUrl(
+                                                message.mediaUrl,
+                                              )}
+                                              alt="GIF"
+                                              className="max-w-[280px] sm:max-w-[340px] rounded-lg"
+                                            />
+                                          )}
+                                        {message.messageType === "image" &&
+                                          message.mediaUrl && (
+                                            <img
+                                              src={resolveMediaUrl(
+                                                message.mediaUrl,
+                                              )}
+                                              alt="Image"
+                                              className="max-w-[280px] sm:max-w-[340px] rounded-lg"
+                                            />
+                                          )}
+                                        {message.messageType === "video" &&
+                                          message.mediaUrl && (
+                                            <video
+                                              src={resolveMediaUrl(
+                                                message.mediaUrl,
+                                              )}
+                                              controls
+                                              className="max-w-[280px] sm:max-w-[340px] rounded-lg"
+                                            />
+                                          )}
+                                        {message.content && (
+                                          <p
+                                            className={`text-sm leading-relaxed ${
+                                              message.messageType &&
+                                              message.messageType !== "text" &&
+                                              message.mediaUrl
+                                                ? "mt-2"
+                                                : "mt-0"
+                                            }`}
+                                          >
+                                            {message.content}
+                                          </p>
+                                        )}
+                                      </>
+                                    )}
+                                  </motion.div>
+                                </div>
+                              </motion.div>
+                            </ContextMenuTrigger>
 
-                          <ContextMenuContent sideOffset={6}>
-                            <ContextMenuItem
-                              onSelect={() => handleMenuReply(message.id)}
-                            >
-                              Reply
-                            </ContextMenuItem>
-                            {message.isMe && (
-                              <>
-                                <ContextMenuItem
-                                  onSelect={() =>
-                                    handleMenuEdit(message.id, message.content)
-                                  }
-                                >
-                                  Edit
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem
-                                  onSelect={() => handleMenuDelete(message.id)}
-                                  variant="destructive"
-                                >
-                                  Delete
-                                </ContextMenuItem>
-                              </>
-                            )}
-                          </ContextMenuContent>
-                        </ContextMenu>
+                            <ContextMenuContent sideOffset={6}>
+                              <ContextMenuItem
+                                onSelect={() => handleMenuReply(message.id)}
+                              >
+                                Reply
+                              </ContextMenuItem>
+                              {message.isMe && (
+                                <>
+                                  <ContextMenuItem
+                                    onSelect={() =>
+                                      handleMenuEdit(
+                                        message.id,
+                                        message.content,
+                                      )
+                                    }
+                                  >
+                                    Edit
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator />
+                                  <ContextMenuItem
+                                    onSelect={() =>
+                                      handleMenuDelete(message.id)
+                                    }
+                                    variant="destructive"
+                                  >
+                                    Delete
+                                  </ContextMenuItem>
+                                </>
+                              )}
+                            </ContextMenuContent>
+                          </ContextMenu>
+                        </React.Fragment>
                       ))}
                     </AnimatePresence>
 
@@ -984,9 +1712,29 @@ export function Messages({
                       <Button
                         variant="ghost"
                         size="icon"
+                        onClick={() => setShowGifPicker(true)}
                         className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
                       >
-                        <Paperclip className="h-4 w-4" />
+                        <Smile className="h-4 w-4" />
+                      </Button>
+                    </motion.div>
+
+                    <motion.div
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
+                        disabled={isUploadingMedia}
+                      >
+                        {isUploadingMedia ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ImageIcon className="h-4 w-4" />
+                        )}
                       </Button>
                     </motion.div>
 
@@ -1014,13 +1762,6 @@ export function Messages({
                           </Button>
                         </div>
                       )}
-                      <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
-                      >
-                        <Smile className="h-4 w-4" />
-                      </motion.button>
                     </div>
 
                     <motion.div
@@ -1115,13 +1856,39 @@ export function Messages({
                   {/* Friends list */}
                   {friendsList.length > 0 && (
                     <div className="px-2 pb-2">
-                      <div className="text-xs text-muted-foreground mb-2">Friends</div>
+                      <div className="text-xs text-muted-foreground mb-2">
+                        Friends
+                      </div>
                       {friendsList.map((f) => (
-                        <Button key={f.id} variant="ghost" className="w-full justify-start text-sm" onClick={() => handleConversationClick(`dm:${user?.id}:${f.id}`)}>
+                        <Button
+                          key={f.id}
+                          variant="ghost"
+                          className="w-full justify-start text-sm"
+                          onClick={async () => {
+                            try {
+                              const conversationId = await ensureDmConversation(
+                                f.id,
+                                f.profile?.displayName || f.username,
+                              );
+                              if (conversationId) {
+                                await handleConversationClick(conversationId);
+                              }
+                            } catch (error) {
+                              console.error("failed starting DM", error);
+                            }
+                          }}
+                        >
                           <div className="flex items-center gap-3 w-full">
-                            <Avatar className="h-8 w-8"><AvatarFallback>{(f.username||'U').charAt(0)}</AvatarFallback></Avatar>
+                            <UserAvatar
+                              className="h-8 w-8"
+                              name={f.profile?.displayName || f.username}
+                              username={f.username}
+                              imageUrl={f.profileImageUrl || f.avatarUrl}
+                            />
                             <div className="flex-1 text-left">
-                              <div className="font-medium">{f.username}</div>
+                              <div className="font-medium">
+                                {f.profile?.displayName || f.username}
+                              </div>
                             </div>
                           </div>
                         </Button>
@@ -1175,11 +1942,17 @@ export function Messages({
                                 whileHover={{ scale: 1.1 }}
                                 transition={{ type: "spring", stiffness: 300 }}
                               >
-                                <Avatar className="h-12 w-12 border-2 border-primary/20">
-                                  <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                                    {conversation.name.charAt(0)}
-                                  </AvatarFallback>
-                                </Avatar>
+                                <UserAvatar
+                                  className="h-12 w-12 border-2 border-primary/20"
+                                  name={conversation.name}
+                                  username={conversation.name}
+                                  imageUrl={
+                                    conversation.avatar ||
+                                    resolveConversationAvatarUrl(
+                                      conversation.id,
+                                    )
+                                  }
+                                />
                               </motion.div>
                               {conversation.online && (
                                 <motion.div
@@ -1227,7 +2000,9 @@ export function Messages({
                                     </motion.div>
                                   )}
                                   <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                    {conversation.timestamp}
+                                    {formatSidebarTimestamp(
+                                      conversation.timestamp,
+                                    )}
                                   </span>
                                 </div>
                               </div>
@@ -1266,16 +2041,28 @@ export function Messages({
                   {/* Chat Header with Glass Effect */}
                   <div className="p-4 border-b border-border/50 flex-shrink-0 bg-background/80 backdrop-blur-xl sticky top-0 z-10">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
+                      <button
+                        type="button"
+                        onClick={handleOpenActiveDmProfile}
+                        className={`flex items-center space-x-3 flex-1 min-w-0 text-left ${
+                          activeConversation.type === "direct"
+                            ? "cursor-pointer"
+                            : "cursor-default"
+                        }`}
+                        disabled={activeConversation.type !== "direct"}
+                      >
                         <motion.div
                           whileHover={{ scale: 1.05 }}
                           transition={{ type: "spring", stiffness: 300 }}
                         >
-                          <Avatar className="h-12 w-12 border-2 border-primary/20">
-                            <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                              {activeConversation.name.charAt(0)}
-                            </AvatarFallback>
-                          </Avatar>
+                          <UserAvatar
+                            className="h-12 w-12 border-2 border-primary/20"
+                            name={activeConversation.name}
+                            username={activeConversation.name}
+                            imageUrl={resolveConversationAvatarUrl(
+                              activeConversation.id,
+                            )}
+                          />
                         </motion.div>
 
                         <div className="flex-1 min-w-0">
@@ -1306,179 +2093,234 @@ export function Messages({
                             </motion.p>
                           )}
                         </div>
-                      </div>
+                      </button>
 
-                      <div className="flex items-center space-x-1">
-                        {selectedChat.type === "direct" && (
-                          <>
-                            <motion.div
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                            >
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
-                              >
-                                <Phone className="h-4 w-4" />
-                              </Button>
-                            </motion.div>
-                            <motion.div
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                            >
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
-                              >
-                                <Video className="h-4 w-4" />
-                              </Button>
-                            </motion.div>
-                          </>
-                        )}
-                        <motion.div
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                        >
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
+                      {activeConversation.type !== "direct" && (
+                        <div className="flex items-center space-x-1">
+                          <motion.div
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
                           >
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </motion.div>
-                      </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </motion.div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   {/* Messages Area */}
                   <div className="flex-1 overflow-y-auto p-6 min-h-0">
-                    <div className="space-y-4 max-w-4xl mx-auto">
+                    <div
+                      key={`desktop-thread-${selectedConversation || "none"}`}
+                      className="space-y-0 max-w-4xl mx-auto dm-thread-transition"
+                    >
                       <AnimatePresence>
                         {messagesState.map((message, index) => (
-                          <ContextMenu key={message.id}>
-                            <ContextMenuTrigger asChild>
-                              <motion.div
-                                initial={{ opacity: 0, y: 20, scale: 0.9 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                transition={{
-                                  delay: index * 0.05,
-                                  type: "spring",
-                                  stiffness: 200,
-                                }}
-                                className={`flex ${message.isMe ? "justify-end" : "justify-start"}`}
-                              >
-                                <div
-                                  className={`max-w-md lg:max-w-lg ${message.isMe ? "order-2" : "order-1"}`}
+                          <React.Fragment key={message.id}>
+                            {(index === 0 ||
+                              !isSameCalendarDay(
+                                message.timestamp,
+                                messagesState[index - 1].timestamp,
+                              )) && (
+                              <div className="flex justify-center py-1">
+                                <span className="text-xs text-muted-foreground bg-muted/40 px-3 py-1 rounded-full">
+                                  {formatMessageDayLabel(message.timestamp)}
+                                </span>
+                              </div>
+                            )}
+                            {shouldShowGroupedTimestamp(
+                              message,
+                              messagesState[index - 1],
+                            ) && (
+                              <div className="flex justify-center py-0.5">
+                                <span className="text-[11px] text-muted-foreground bg-muted/30 px-2.5 py-1 rounded-full">
+                                  {formatMessageTime(message.timestamp)}
+                                </span>
+                              </div>
+                            )}
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <motion.div
+                                  initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                                  transition={{
+                                    delay: index * 0.05,
+                                    type: "spring",
+                                    stiffness: 200,
+                                  }}
+                                  className={`flex ${message.isMe ? "justify-end" : "justify-start"} ${
+                                    index === 0
+                                      ? ""
+                                      : !shouldShowGroupedTimestamp(
+                                            message,
+                                            messagesState[index - 1],
+                                          ) &&
+                                          (message.senderId || "") ===
+                                            (messagesState[index - 1]?.senderId ||
+                                              "")
+                                        ? "mt-0.5"
+                                        : "mt-1.5"
+                                  }`}
                                 >
-                                  {!message.isMe && (
+                                  <div
+                                    className={`max-w-[72%] ${message.isMe ? "order-2" : "order-1"}`}
+                                  >
+                                    {!message.isMe &&
+                                      shouldShowSenderLabel(
+                                        message,
+                                        messagesState[index - 1],
+                                      ) && (
+                                        <motion.div
+                                          initial={{ opacity: 0, x: -10 }}
+                                          animate={{ opacity: 1, x: 0 }}
+                                          transition={{
+                                            delay: index * 0.05 + 0.1,
+                                          }}
+                                          className="flex items-center space-x-2 mb-0.5"
+                                        >
+                                          <UserAvatar
+                                            className="h-7 w-7 -mt-0.5"
+                                            name={message.sender}
+                                            username={message.sender}
+                                            imageUrl={resolveSenderAvatarUrl(
+                                              message.senderId,
+                                              activeConversation?.id,
+                                            )}
+                                            fallbackClassName="bg-primary/10 text-primary text-xs"
+                                          />
+                                          <span className="text-sm font-medium text-foreground">
+                                            {message.sender}
+                                          </span>
+                                        </motion.div>
+                                      )}
                                     <motion.div
-                                      initial={{ opacity: 0, x: -10 }}
-                                      animate={{ opacity: 1, x: 0 }}
-                                      transition={{ delay: index * 0.05 + 0.1 }}
-                                      className="flex items-center space-x-2 mb-1.5"
+                                      whileHover={{ scale: 1.02 }}
+                                      className={`w-fit max-w-full rounded-2xl px-3 py-1.5 transition-all duration-300 backdrop-blur-sm border border-black/35 dark:border-white/55 ${
+                                        message.isMe
+                                          ? "ml-auto bg-primary text-primary-foreground shadow-lg shadow-primary/20"
+                                          : "mr-auto bg-muted/70 text-foreground shadow-md"
+                                      }`}
                                     >
-                                      <Avatar className="h-7 w-7">
-                                        <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                                          {message.sender.charAt(0)}
-                                        </AvatarFallback>
-                                      </Avatar>
-                                      <span className="text-sm font-medium text-foreground">
-                                        {message.sender}
-                                      </span>
-                                      <span className="text-xs text-muted-foreground">
-                                        {message.timestamp}
-                                      </span>
-                                    </motion.div>
-                                  )}
-                                  <motion.div
-                                    whileHover={{ scale: 1.02 }}
-                                    className={`rounded-2xl px-4 py-3 transition-all duration-300 backdrop-blur-sm ${
-                                      message.isMe
-                                        ? "bg-primary text-primary-foreground ml-auto shadow-lg shadow-primary/20"
-                                        : "bg-muted/70 text-foreground shadow-md"
-                                    }`}
-                                  >
-                                    {editingId === message.id ? (
-                                      <div>
-                                        <Input
-                                          value={editingText}
-                                          onChange={(e) =>
-                                            setEditingText(
-                                              (e.target as HTMLInputElement)
-                                                .value,
-                                            )
-                                          }
-                                        />
-                                        <div className="flex justify-center space-x-2 mt-2">
-                                          <Button
-                                            onClick={submitEdit}
-                                            className="ring-2 ring-white/10"
-                                          >
-                                            Save
-                                          </Button>
-                                          <Button
-                                            variant="ghost"
-                                            onClick={() => {
-                                              setEditingId(null);
-                                              setEditingText("");
-                                            }}
-                                            className="ring-2 ring-white/6"
-                                          >
-                                            Cancel
-                                          </Button>
+                                      {editingId === message.id ? (
+                                        <div>
+                                          <Input
+                                            value={editingText}
+                                            onChange={(e) =>
+                                              setEditingText(
+                                                (e.target as HTMLInputElement)
+                                                  .value,
+                                              )
+                                            }
+                                          />
+                                          <div className="flex justify-center space-x-2 mt-2">
+                                            <Button
+                                              onClick={submitEdit}
+                                              className="ring-2 ring-white/10"
+                                            >
+                                              Save
+                                            </Button>
+                                            <Button
+                                              variant="ghost"
+                                              onClick={() => {
+                                                setEditingId(null);
+                                                setEditingText("");
+                                              }}
+                                              className="ring-2 ring-white/6"
+                                            >
+                                              Cancel
+                                            </Button>
+                                          </div>
                                         </div>
-                                      </div>
-                                    ) : (
-                                      <>
-                                        <p className="text-sm leading-relaxed">
-                                          {message.content}
-                                        </p>
-                                        {message.isMe && (
-                                          <p className="text-xs opacity-75 mt-1.5 text-right">
-                                            {message.timestamp}
-                                          </p>
-                                        )}
-                                      </>
-                                    )}
-                                  </motion.div>
-                                </div>
-                              </motion.div>
-                            </ContextMenuTrigger>
+                                      ) : (
+                                        <>
+                                          {message.messageType === "gif" &&
+                                            message.mediaUrl && (
+                                              <img
+                                                src={resolveMediaUrl(
+                                                  message.mediaUrl,
+                                                )}
+                                                alt="GIF"
+                                                className="max-w-[340px] lg:max-w-[420px] rounded-lg"
+                                              />
+                                            )}
+                                          {message.messageType === "image" &&
+                                            message.mediaUrl && (
+                                              <img
+                                                src={resolveMediaUrl(
+                                                  message.mediaUrl,
+                                                )}
+                                                alt="Image"
+                                                className="max-w-[340px] lg:max-w-[420px] rounded-lg"
+                                              />
+                                            )}
+                                          {message.messageType === "video" &&
+                                            message.mediaUrl && (
+                                              <video
+                                                src={resolveMediaUrl(
+                                                  message.mediaUrl,
+                                                )}
+                                                controls
+                                                className="max-w-[340px] lg:max-w-[420px] rounded-lg"
+                                              />
+                                            )}
+                                          {message.content && (
+                                            <p
+                                              className={`text-sm leading-relaxed ${
+                                                message.messageType &&
+                                                message.messageType !== "text" &&
+                                                message.mediaUrl
+                                                  ? "mt-2"
+                                                  : "mt-0"
+                                              }`}
+                                            >
+                                              {message.content}
+                                            </p>
+                                          )}
+                                        </>
+                                      )}
+                                    </motion.div>
+                                  </div>
+                                </motion.div>
+                              </ContextMenuTrigger>
 
-                            <ContextMenuContent sideOffset={6}>
-                              <ContextMenuItem
-                                onSelect={() => handleMenuReply(message.id)}
-                              >
-                                Reply
-                              </ContextMenuItem>
-                              {message.isMe && (
-                                <>
-                                  <ContextMenuItem
-                                    onSelect={() =>
-                                      handleMenuEdit(
-                                        message.id,
-                                        message.content,
-                                      )
-                                    }
-                                  >
-                                    Edit
-                                  </ContextMenuItem>
-                                  <ContextMenuSeparator />
-                                  <ContextMenuItem
-                                    onSelect={() =>
-                                      handleMenuDelete(message.id)
-                                    }
-                                    variant="destructive"
-                                  >
-                                    Delete
-                                  </ContextMenuItem>
-                                </>
-                              )}
-                            </ContextMenuContent>
-                          </ContextMenu>
+                              <ContextMenuContent sideOffset={6}>
+                                <ContextMenuItem
+                                  onSelect={() => handleMenuReply(message.id)}
+                                >
+                                  Reply
+                                </ContextMenuItem>
+                                {message.isMe && (
+                                  <>
+                                    <ContextMenuItem
+                                      onSelect={() =>
+                                        handleMenuEdit(
+                                          message.id,
+                                          message.content,
+                                        )
+                                      }
+                                    >
+                                      Edit
+                                    </ContextMenuItem>
+                                    <ContextMenuSeparator />
+                                    <ContextMenuItem
+                                      onSelect={() =>
+                                        handleMenuDelete(message.id)
+                                      }
+                                      variant="destructive"
+                                    >
+                                      Delete
+                                    </ContextMenuItem>
+                                  </>
+                                )}
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          </React.Fragment>
                         ))}
                       </AnimatePresence>
 
@@ -1521,9 +2363,10 @@ export function Messages({
                         <Button
                           variant="ghost"
                           size="icon"
+                          onClick={() => setShowGifPicker(true)}
                           className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
                         >
-                          <Paperclip className="h-4 w-4" />
+                          <Smile className="h-4 w-4" />
                         </Button>
                       </motion.div>
 
@@ -1534,15 +2377,21 @@ export function Messages({
                         <Button
                           variant="ghost"
                           size="icon"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={isUploadingMedia}
                           className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
                         >
-                          <ImageIcon className="h-4 w-4" />
+                          {isUploadingMedia ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <ImageIcon className="h-4 w-4" />
+                          )}
                         </Button>
                       </motion.div>
 
                       <div className="flex-1 relative">
                         <Input
-                          placeholder={`Message ${selectedChat.name}...`}
+                          placeholder={`Message ${activeConversation?.name || "conversation"}...`}
                           value={messageInput}
                           onChange={(e) => setMessageInput(e.target.value)}
                           onKeyPress={(e) =>
@@ -1550,13 +2399,6 @@ export function Messages({
                           }
                           className="bg-muted/30 backdrop-blur-sm border-border/50 focus:border-primary/50 focus:bg-muted/50 transition-all duration-300 focus:shadow-lg focus:shadow-primary/5 pr-10"
                         />
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
-                        >
-                          <Smile className="h-4 w-4" />
-                        </motion.button>
                       </div>
 
                       <motion.div

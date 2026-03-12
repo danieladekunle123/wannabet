@@ -3,9 +3,12 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 async function apiFetch(path: string, opts: RequestInit = {}) {
   const token = localStorage.getItem("token");
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
     ...(opts.headers as Record<string, string>),
   };
+
+  if (!(opts.body instanceof FormData) && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
@@ -106,6 +109,22 @@ export async function updateMyAccount(payload: any) {
   });
 }
 
+export async function uploadMyProfileImage(file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  return apiFetch(`/users/me/profile-image/upload`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export async function setMyProfileImageUrl(profileImageUrl: string | null) {
+  return apiFetch(`/users/me/profile-image`, {
+    method: "PATCH",
+    body: JSON.stringify({ profileImageUrl }),
+  });
+}
+
 export async function getMe() {
   return apiFetch(`/users/me`);
 }
@@ -119,6 +138,8 @@ export default {
   addOrUpdateGame,
   updateMyProfile,
   updateMyAccount,
+  uploadMyProfileImage,
+  setMyProfileImageUrl,
   getMe,
   getMyLedger,
   createMatch,

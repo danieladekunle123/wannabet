@@ -16,7 +16,13 @@ router.get('/', async (req, res) => {
           { profile: { displayName: { contains: q, mode: 'insensitive' } } }
         ]
       },
-      select: { id: true, username: true, avatarUrl: true, profile: { select: { displayName: true } } },
+      select: {
+        id: true,
+        username: true,
+        avatarUrl: true,
+        profileImageUrl: true,
+        profile: { select: { displayName: true } },
+      },
       take: 20
     });
 

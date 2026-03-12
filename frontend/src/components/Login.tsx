@@ -30,6 +30,7 @@ export function Login({ onNavigate, onSwitchToSignup }: LoginProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const { login } = useAuth();
+  const googleRedirectUri = window.location.origin;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,13 +65,18 @@ export function Login({ onNavigate, onSwitchToSignup }: LoginProps) {
 
   const googleLogin = useGoogleLogin({
     flow: "auth-code",
+    redirect_uri: googleRedirectUri,
     onSuccess: async (codeResponse) => {
       setIsLoading(true);
       try {
         const res = await fetch("http://localhost:4000/auth/google", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: codeResponse.code }),
+          body: JSON.stringify({
+            code: codeResponse.code,
+            redirectUri: googleRedirectUri,
+            mode: "signin",
+          }),
         });
 
         const data = await res.json();

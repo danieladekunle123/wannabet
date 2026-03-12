@@ -4,8 +4,15 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Progress } from "./ui/progress";
-import { AddFriendDialog } from "./AddFriendDialog";
 import { ReportUserDialog } from "./ReportUserDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
 import {
   ArrowLeft,
   Shield,
@@ -21,6 +28,8 @@ import {
   DollarSign,
   MessageSquare,
   UserPlus,
+  UserMinus,
+  Ban,
   Flag,
   Crown,
   Flame,
@@ -29,9 +38,10 @@ import {
   Edit,
 } from "lucide-react";
 import { useAuth } from "./AuthContext";
+import { UserAvatar } from "./UserAvatar";
 
 interface PublicProfileProps {
-  onNavigate: (tab: string) => void;
+  onNavigate: (tab: string, query?: string) => void;
   userId?: string;
   isOwnProfile?: boolean;
 }
@@ -77,18 +87,29 @@ export function PublicProfile({
   userId,
   isOwnProfile = false,
 }: PublicProfileProps) {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
   const [profileState, setProfileState] = useState<any>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
-  const [showAddFriendDialog, setShowAddFriendDialog] = useState(false);
+  const [showSendFriendRequestDialog, setShowSendFriendRequestDialog] =
+    useState(false);
+  const [showRemoveFriendDialog, setShowRemoveFriendDialog] = useState(false);
+  const [showBlockUserDialog, setShowBlockUserDialog] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
+  const [friendRequestState, setFriendRequestState] = useState<
+    "none" | "outgoing" | "incoming" | "friends" | "blocked"
+  >("none");
+  const [blockedByUser, setBlockedByUser] = useState(false);
+  const [isUpdatingFriendRequest, setIsUpdatingFriendRequest] = useState(false);
 
   const buildProfileFromUser = (u: any) => {
     return {
+      userId: u.id,
       username: u.username,
       avatar: (u.username || "").slice(0, 2).toUpperCase(),
+      profileImageUrl: u.profileImageUrl || u.avatarUrl || null,
       bio: u.profile?.bio || "",
       country: u.profile?.country || "",
       joinDate: u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "",
@@ -143,6 +164,151 @@ export function PublicProfile({
     };
   }, [isOwnProfile, user, userId]);
 
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadFriendshipStatus() {
+      if (isOwnProfile || !userId || !token) return;
+
+      try {
+        const res = await fetch(
+          `${API_URL}/users/${userId}/friendship-status`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!mounted) return;
+
+        if (data.isFriend) {
+          setFriendRequestState("friends");
+        } else if (data.blockedByYou) {
+          setFriendRequestState("blocked");
+          setBlockedByUser(false);
+        } else if (data.blockedYou) {
+          setFriendRequestState("none");
+          setBlockedByUser(true);
+        } else if (data.outgoingRequest) {
+          setFriendRequestState("outgoing");
+          setBlockedByUser(false);
+        } else if (data.incomingRequest) {
+          setFriendRequestState("incoming");
+          setBlockedByUser(false);
+        } else {
+          setFriendRequestState("none");
+          setBlockedByUser(false);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    loadFriendshipStatus();
+    return () => {
+      mounted = false;
+    };
+  }, [API_URL, isOwnProfile, token, userId]);
+
+  const sendFriendRequest = async () => {
+    if (!userId || !token) return;
+    setIsUpdatingFriendRequest(true);
+    try {
+      const res = await fetch(`${API_URL}/users/${userId}/friend-requests`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Failed to send friend request");
+      }
+      setFriendRequestState("outgoing");
+      setShowSendFriendRequestDialog(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUpdatingFriendRequest(false);
+    }
+  };
+
+  const retractFriendRequest = async () => {
+    if (!userId || !token) return;
+    setIsUpdatingFriendRequest(true);
+    try {
+      const res = await fetch(`${API_URL}/users/${userId}/friend-requests`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to retract friend request");
+      setFriendRequestState("none");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUpdatingFriendRequest(false);
+    }
+  };
+
+  const removeFriend = async () => {
+    if (!userId || !token) return;
+    setIsUpdatingFriendRequest(true);
+    try {
+      const res = await fetch(`${API_URL}/users/${userId}/friends`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to remove friend");
+      setFriendRequestState("none");
+      setShowRemoveFriendDialog(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUpdatingFriendRequest(false);
+    }
+  };
+
+  const blockUser = async () => {
+    if (!userId || !token) return;
+    setIsUpdatingFriendRequest(true);
+    try {
+      const res = await fetch(`${API_URL}/users/${userId}/block`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) throw new Error("Failed to block user");
+      setFriendRequestState("blocked");
+      setBlockedByUser(false);
+      setShowBlockUserDialog(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUpdatingFriendRequest(false);
+    }
+  };
+
+  const unblockUser = async () => {
+    if (!userId || !token) return;
+    setIsUpdatingFriendRequest(true);
+    try {
+      const res = await fetch(`${API_URL}/users/${userId}/block`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to unblock user");
+      setFriendRequestState("none");
+      setBlockedByUser(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUpdatingFriendRequest(false);
+    }
+  };
+
   if (!profileState && loadingProfile) {
     return (
       <div className="flex items-center justify-center min-h-[60vh] text-muted-foreground">
@@ -154,7 +320,6 @@ export function PublicProfile({
   // ensure non-null for rendering
   const displayed = profileState || emptyFallback;
   const profile = displayed;
-  
 
   if (isOwnProfile && !user) {
     return (
@@ -184,11 +349,13 @@ export function PublicProfile({
             {/* Avatar & Basic Info */}
             <div className="flex items-start space-x-4 flex-1 min-w-0">
               <div className="relative shrink-0">
-                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-br from-primary to-amber-500 flex items-center justify-center shadow-lg">
-                  <span className="text-white font-bold text-2xl sm:text-3xl">
-                    {profile.avatar}
-                  </span>
-                </div>
+                <UserAvatar
+                  className="w-20 h-20 sm:w-24 sm:h-24 shadow-lg"
+                  name={profile.username}
+                  username={profile.username}
+                  imageUrl={profile.profileImageUrl}
+                  fallbackClassName="bg-gradient-to-br from-primary to-amber-500 text-white text-2xl sm:text-3xl"
+                />
                 {profile.isOnline && (
                   <div className="absolute bottom-0 right-0 w-6 h-6 bg-emerald-500 border-4 border-card rounded-full" />
                 )}
@@ -278,13 +445,24 @@ export function PublicProfile({
                     variant="outline"
                     className="w-full sm:flex-1 lg:w-auto"
                     onClick={() => {
-                      const current = user?.id || (window as any).__WB_CURRENT_USER_ID;
-                      const target = String(userId || profile.username || profile.avatar);
-                      const a = String(current || target);
-                      const b = target;
-                      const pair = [a, b].sort().join(":");
-                      onNavigate('messages', `dm:${pair}`);
+                      const targetUserId = String(
+                        userId || profile.userId || "",
+                      );
+                      if (
+                        !targetUserId ||
+                        !user?.id ||
+                        targetUserId === user.id
+                      )
+                        return;
+                      const targetUserName = encodeURIComponent(
+                        String(profile.username || ""),
+                      );
+                      onNavigate(
+                        "messages",
+                        `user:${targetUserId}:${targetUserName}`,
+                      );
                     }}
+                    disabled={friendRequestState === "blocked" || blockedByUser}
                   >
                     <MessageSquare className="h-4 w-4 mr-2" />
                     Message
@@ -292,11 +470,69 @@ export function PublicProfile({
                   <Button
                     variant="outline"
                     className="w-full sm:flex-1 lg:w-auto"
-                    onClick={() => setShowAddFriendDialog(true)}
+                    onClick={() => setShowSendFriendRequestDialog(true)}
+                    disabled={
+                      isUpdatingFriendRequest ||
+                      blockedByUser ||
+                      friendRequestState === "blocked" ||
+                      friendRequestState === "outgoing" ||
+                      friendRequestState === "friends"
+                    }
                   >
                     <UserPlus className="h-4 w-4 mr-2" />
-                    Add Friend
+                    {blockedByUser
+                      ? "Blocked You"
+                      : friendRequestState === "blocked"
+                        ? "Blocked"
+                        : friendRequestState === "friends"
+                          ? "Friends"
+                          : friendRequestState === "outgoing"
+                            ? "Request Sent"
+                            : friendRequestState === "incoming"
+                              ? "Respond in Requests"
+                              : "Add Friend"}
                   </Button>
+                  {friendRequestState === "outgoing" && (
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      onClick={retractFriendRequest}
+                      disabled={isUpdatingFriendRequest}
+                    >
+                      Retract Request
+                    </Button>
+                  )}
+                  {friendRequestState === "friends" && (
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      onClick={() => setShowRemoveFriendDialog(true)}
+                      disabled={isUpdatingFriendRequest}
+                    >
+                      <UserMinus className="h-4 w-4 mr-2" />
+                      Remove Friend
+                    </Button>
+                  )}
+                  {friendRequestState === "blocked" ? (
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      onClick={unblockUser}
+                      disabled={isUpdatingFriendRequest}
+                    >
+                      Unblock
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      onClick={() => setShowBlockUserDialog(true)}
+                      disabled={isUpdatingFriendRequest || blockedByUser}
+                    >
+                      <Ban className="h-4 w-4 mr-2" />
+                      Block User
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     className="w-full sm:w-auto"
@@ -650,12 +886,92 @@ export function PublicProfile({
       {/* Dialogs */}
       {!isOwnProfile && (
         <>
-          <AddFriendDialog
-            open={showAddFriendDialog}
-            onOpenChange={setShowAddFriendDialog}
-            username={profile.username}
-            avatar={profile.avatar}
-          />
+          <Dialog
+            open={showSendFriendRequestDialog}
+            onOpenChange={setShowSendFriendRequestDialog}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Send Friend Request</DialogTitle>
+                <DialogDescription>
+                  Send friend request to {profile.username}?
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSendFriendRequestDialog(false)}
+                  disabled={isUpdatingFriendRequest}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={sendFriendRequest}
+                  disabled={isUpdatingFriendRequest}
+                >
+                  Send Request
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={showRemoveFriendDialog}
+            onOpenChange={setShowRemoveFriendDialog}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Remove Friend</DialogTitle>
+                <DialogDescription>
+                  Remove {profile.username} from your friends?
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowRemoveFriendDialog(false)}
+                  disabled={isUpdatingFriendRequest}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={removeFriend}
+                  disabled={isUpdatingFriendRequest}
+                >
+                  Remove Friend
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={showBlockUserDialog}
+            onOpenChange={setShowBlockUserDialog}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Block User</DialogTitle>
+                <DialogDescription>
+                  Block {profile.username}? You will no longer receive messages
+                  or friend requests from them.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowBlockUserDialog(false)}
+                  disabled={isUpdatingFriendRequest}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={blockUser} disabled={isUpdatingFriendRequest}>
+                  Block
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <ReportUserDialog
             open={showReportDialog}
             onOpenChange={setShowReportDialog}
