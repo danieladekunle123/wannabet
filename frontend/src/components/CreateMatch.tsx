@@ -31,6 +31,7 @@ import {
   Flag,
   ChevronRight
 } from 'lucide-react';
+import { GameSelector, type SelectedGameOption } from './games/GameSelector';
 
 interface CreateMatchProps {
   onNavigate: (page: string) => void;
@@ -39,7 +40,7 @@ interface CreateMatchProps {
 
 export function CreateMatch({ onNavigate, initialTab = 'tournament' }: CreateMatchProps) {
   const [matchType, setMatchType] = useState<'tournament' | 'scrim' | 'wager' | 'custom'>(initialTab);
-  const [selectedGame, setSelectedGame] = useState('');
+  const [selectedGame, setSelectedGame] = useState<SelectedGameOption | null>(null);
   const [entryFee, setEntryFee] = useState([25]);
   const [teamSize, setTeamSize] = useState('5v5');
   const [mmrRequired, setMMRRequired] = useState([1500]);
@@ -47,17 +48,6 @@ export function CreateMatch({ onNavigate, initialTab = 'tournament' }: CreateMat
   const [privateMatch, setPrivateMatch] = useState(false);
 
   const { refreshUser } = useAuth();
-
-  const games = [
-    { id: 'cs2', name: 'Counter-Strike 2', icon: '🎯' },
-    { id: 'valorant', name: 'Valorant', icon: '⚔️' },
-    { id: 'dota2', name: 'Dota 2', icon: '🏆' },
-    { id: 'lol', name: 'League of Legends', icon: '👑' },
-    { id: 'rocket-league', name: 'Rocket League', icon: '🚗' },
-    { id: 'apex', name: 'Apex Legends', icon: '🔫' },
-    { id: 'fortnite', name: 'Fortnite', icon: '🏗️' },
-    { id: 'cod', name: 'Call of Duty', icon: '💥' },
-  ];
 
   const matchTypes = [
     {
@@ -171,21 +161,7 @@ export function CreateMatch({ onNavigate, initialTab = 'tournament' }: CreateMat
             <CardContent className="space-y-4">
               <div>
                 <Label htmlFor="game">Select Game</Label>
-                <Select value={selectedGame} onValueChange={setSelectedGame}>
-                  <SelectTrigger id="game" className="bg-muted/50 border-muted">
-                    <SelectValue placeholder="Choose your game" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {games.map((game) => (
-                      <SelectItem key={game.id} value={game.id}>
-                        <div className="flex items-center gap-2">
-                          <span>{game.icon}</span>
-                          <span>{game.name}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <GameSelector onGameSelected={setSelectedGame} />
               </div>
 
               <div>
@@ -470,6 +446,13 @@ export function CreateMatch({ onNavigate, initialTab = 'tournament' }: CreateMat
                   {matchTypes.find(t => t.id === matchType)?.title}
                 </Badge>
               </div>
+
+              <div className="flex items-center justify-between p-2 bg-muted/30 rounded">
+                <span className="text-sm text-muted-foreground">Game</span>
+                <span className="font-semibold text-foreground max-w-[55%] truncate text-right">
+                  {selectedGame?.name || 'Not selected'}
+                </span>
+              </div>
               
               {matchType !== 'scrim' && (
                 <div className="flex items-center justify-between p-2 bg-muted/30 rounded">
@@ -524,11 +507,13 @@ export function CreateMatch({ onNavigate, initialTab = 'tournament' }: CreateMat
               </Button>
               <Button 
                 className="bg-primary hover:bg-primary/90 text-primary-foreground flex-1 sm:flex-none"
-                disabled={!selectedGame}
+                disabled={!selectedGame?.name}
                 onClick={async () => {
                   try {
                     const stake = matchType === 'scrim' ? 0 : entryFee[0];
-                    const res = await api.createMatch({ game: selectedGame, stake });
+                    const gameName = selectedGame?.name?.trim() || '';
+                    if (!gameName) return;
+                    const res = await api.createMatch({ game: gameName, stake });
                     // refresh global user to update balances
                     await refreshUser?.();
                     // navigate to view the newly created match

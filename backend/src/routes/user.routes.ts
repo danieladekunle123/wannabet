@@ -340,6 +340,242 @@ userRouter.get(
   },
 );
 
+// Moderator: player list for moderation panel
+userRouter.get(
+  "/moderation/players",
+  requireAuth,
+  requireRole("MODERATOR"),
+  async (req, res) => {
+    try {
+      const q = String(req.query.q || "").trim();
+      const limit = Math.min(10, Math.max(1, Number(req.query.limit) || 10));
+
+      const users = await prisma.user.findMany({
+        where: {
+          role: "PLAYER",
+          ...(q
+            ? {
+                OR: [
+                  { username: { contains: q, mode: "insensitive" } },
+                  {
+                    profile: {
+                      displayName: { contains: q, mode: "insensitive" },
+                    },
+                  },
+                ],
+              }
+            : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: {
+          id: true,
+          username: true,
+          createdAt: true,
+          avatarUrl: true,
+          profileImageUrl: true,
+          profile: { select: { trustScore: true } },
+          playerGames: { select: { wins: true, losses: true } },
+          hostedMatches: { select: { id: true } },
+          joinedMatches: { select: { id: true } },
+          bans: {
+            where: { active: true },
+            select: { expiresAt: true },
+          },
+          playerLogs: {
+            where: {
+              OR: [
+                { type: { contains: "report", mode: "insensitive" } },
+                { type: { contains: "flag", mode: "insensitive" } },
+              ],
+            },
+            select: { id: true },
+          },
+        },
+      });
+
+      const now = new Date();
+      const players = users.map((u) => {
+        const wins = u.playerGames.reduce((sum, g) => sum + g.wins, 0);
+        const losses = u.playerGames.reduce((sum, g) => sum + g.losses, 0);
+        const matchCount = u.hostedMatches.length + u.joinedMatches.length;
+        const totalMatches = matchCount > 0 ? matchCount : wins + losses;
+
+        const hasPermanentBan = u.bans.some((b) => !b.expiresAt);
+        const hasActiveSuspension = u.bans.some(
+          (b) => b.expiresAt && new Date(b.expiresAt) > now,
+        );
+
+        const status = hasPermanentBan
+          ? "banned"
+          : hasActiveSuspension
+            ? "suspended"
+            : u.playerLogs.length > 0
+              ? "warned"
+              : "active";
+
+        return {
+          id: u.id,
+          username: u.username,
+          trustScore: Number(u.profile?.trustScore ?? 100),
+          totalMatches,
+          wins,
+          losses,
+          totalEarnings: 0,
+          mmr: 0,
+          accountCreated: u.createdAt,
+          lastActive: u.createdAt,
+          status,
+          reports: u.playerLogs.length,
+          avatarUrl: u.profileImageUrl || u.avatarUrl || null,
+        };
+      });
+
+      return res.json({ players });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to list moderation players" });
+    }
+  },
+);
+
+// Moderator: single player details for moderation panel
+userRouter.get(
+  "/moderation/players/:id",
+  requireAuth,
+  requireRole("MODERATOR"),
+  async (req, res) => {
+    try {
+      const id = String(req.params.id || "").trim();
+      if (!id) {
+        return res.status(400).json({ message: "Missing player id" });
+      }
+
+      const user = await prisma.user.findFirst({
+        where: { id, role: "PLAYER" },
+        select: {
+          id: true,
+          username: true,
+          createdAt: true,
+          avatarUrl: true,
+          profileImageUrl: true,
+          profile: { select: { trustScore: true } },
+          wallet: {
+            select: {
+              balance: true,
+              escrow: true,
+            },
+          },
+          playerGames: {
+            select: {
+              game: true,
+              isPrimary: true,
+              wins: true,
+              losses: true,
+              hours: true,
+            },
+          },
+          _count: {
+            select: {
+              hostedMatches: true,
+              joinedMatches: true,
+            },
+          },
+          hostedMatches: {
+            select: { createdAt: true },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
+          joinedMatches: {
+            select: { createdAt: true },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
+          bans: {
+            where: { active: true },
+            select: { expiresAt: true },
+          },
+          playerLogs: {
+            select: { createdAt: true },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
+        },
+      });
+
+      if (!user) {
+        return res.status(404).json({ message: "Player not found" });
+      }
+
+      const reportCount = await prisma.playerLog.count({
+        where: {
+          userId: user.id,
+          OR: [
+            { type: { contains: "report", mode: "insensitive" } },
+            { type: { contains: "flag", mode: "insensitive" } },
+          ],
+        },
+      });
+
+      const wins = user.playerGames.reduce((sum, g) => sum + g.wins, 0);
+      const losses = user.playerGames.reduce((sum, g) => sum + g.losses, 0);
+      const totalHours = user.playerGames.reduce((sum, g) => sum + g.hours, 0);
+      const totalMatches =
+        user._count.hostedMatches + user._count.joinedMatches > 0
+          ? user._count.hostedMatches + user._count.joinedMatches
+          : wins + losses;
+
+      const now = new Date();
+      const hasPermanentBan = user.bans.some((b) => !b.expiresAt);
+      const hasActiveSuspension = user.bans.some(
+        (b) => b.expiresAt && new Date(b.expiresAt) > now,
+      );
+
+      const status = hasPermanentBan
+        ? "banned"
+        : hasActiveSuspension
+          ? "suspended"
+          : reportCount > 0
+            ? "warned"
+            : "active";
+
+      const lastActivityCandidates = [
+        user.createdAt,
+        user.playerLogs[0]?.createdAt,
+        user.hostedMatches[0]?.createdAt,
+        user.joinedMatches[0]?.createdAt,
+      ].filter(Boolean) as Date[];
+      const lastActive = new Date(
+        Math.max(...lastActivityCandidates.map((d) => new Date(d).getTime())),
+      );
+
+      const player = {
+        id: user.id,
+        username: user.username,
+        trustScore: Number(user.profile?.trustScore ?? 100),
+        totalMatches,
+        wins,
+        losses,
+        totalHours,
+        totalEarnings: Number(user.wallet?.balance || 0),
+        walletBalance: Number(user.wallet?.balance || 0),
+        escrowBalance: Number(user.wallet?.escrow || 0),
+        mmr: 0,
+        accountCreated: user.createdAt,
+        lastActive,
+        status,
+        reports: reportCount,
+        avatarUrl: user.profileImageUrl || user.avatarUrl || null,
+      };
+
+      return res.json({ player });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to fetch moderation player" });
+    }
+  },
+);
+
 // Friend endpoints
 userRouter.post("/:id/friends", requireAuth, async (req, res) => {
   const targetId = String(req.params.id || "");
@@ -1060,6 +1296,32 @@ userRouter.patch(
 );
 
 // Moderator/Admin: ban a user
+userRouter.post(
+  "/:id/warn",
+  requireAuth,
+  requireRole("MODERATOR"),
+  async (req, res) => {
+    const targetId = req.params.id;
+    const moderatorId = req.user!.userId;
+    const { reason } = req.body as { reason?: string };
+
+    try {
+      const log = await prisma.playerLog.create({
+        data: {
+          userId: targetId,
+          actorId: moderatorId,
+          type: "MOD_WARNING",
+          message: reason?.trim() || "Warned by moderator",
+        },
+      });
+      return res.json({ ok: true, log });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to warn user" });
+    }
+  },
+);
+
 userRouter.post(
   "/:id/ban",
   requireAuth,

@@ -9177,3 +9177,26 @@ button {
     height: 0;
   }
 }
+
+/* RAWG game details modal */
+.game-modal {
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.game-content-scroll {
+  overflow-y: auto;
+  max-height: 45vh;
+  padding-right: 8px;
+}
+
+@media (max-width: 768px) {
+  .game-modal {
+    max-height: 90vh;
+  }
+
+  .game-content-scroll {
+    max-height: 50vh;
+  }
+}

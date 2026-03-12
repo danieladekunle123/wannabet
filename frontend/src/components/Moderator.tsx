@@ -66,10 +66,14 @@ interface Player {
   losses: number;
   totalEarnings: number;
   mmr: number;
+  totalHours?: number;
+  walletBalance?: number;
+  escrowBalance?: number;
   accountCreated: string;
   lastActive: string;
   status: 'active' | 'suspended' | 'banned' | 'warned';
   reports: number;
+  avatarUrl?: string | null;
 }
 
 interface Dispute {
@@ -87,71 +91,17 @@ interface Dispute {
 
 export function Moderator() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [playersLoading, setPlayersLoading] = useState(false);
+  const [playersError, setPlayersError] = useState('');
+  const [selectedPlayerLoading, setSelectedPlayerLoading] = useState(false);
+  const [selectedPlayerError, setSelectedPlayerError] = useState('');
+  const [playersRefreshNonce, setPlayersRefreshNonce] = useState(0);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [disputeFilter, setDisputeFilter] = useState('all');
   const [actionNote, setActionNote] = useState('');
   const [showInvestigate, setShowInvestigate] = useState(false);
-
-  // Mock player data
-  const players: Player[] = [
-    {
-      id: '1',
-      username: 'ProGamer23',
-      trustScore: 98.5,
-      totalMatches: 245,
-      wins: 178,
-      losses: 67,
-      totalEarnings: 3420,
-      mmr: 2450,
-      accountCreated: '2024-01-15',
-      lastActive: '2 hours ago',
-      status: 'active',
-      reports: 0
-    },
-    {
-      id: '2',
-      username: 'ShadyPlayer99',
-      trustScore: 45.2,
-      totalMatches: 89,
-      wins: 23,
-      losses: 66,
-      totalEarnings: -580,
-      mmr: 1120,
-      accountCreated: '2024-03-02',
-      lastActive: '5 hours ago',
-      status: 'warned',
-      reports: 7
-    },
-    {
-      id: '3',
-      username: 'MidLaneKing',
-      trustScore: 92.1,
-      totalMatches: 312,
-      wins: 198,
-      losses: 114,
-      totalEarnings: 5240,
-      mmr: 2680,
-      accountCreated: '2023-11-20',
-      lastActive: '1 hour ago',
-      status: 'active',
-      reports: 1
-    },
-    {
-      id: '4',
-      username: 'ToxicRager',
-      trustScore: 12.5,
-      totalMatches: 156,
-      wins: 45,
-      losses: 111,
-      totalEarnings: -1200,
-      mmr: 890,
-      accountCreated: '2024-02-10',
-      lastActive: '3 days ago',
-      status: 'suspended',
-      reports: 23
-    }
-  ];
 
   // Mock dispute data
   const disputes: Dispute[] = [
@@ -241,6 +191,93 @@ export function Moderator() {
     })();
   }, []);
 
+  React.useEffect(() => {
+    if (!token) return;
+
+    const controller = new AbortController();
+
+    const fetchPlayers = async () => {
+      try {
+        setPlayersLoading(true);
+        setPlayersError('');
+
+        const params = new URLSearchParams();
+        params.set('limit', '10');
+        if (searchTerm.trim()) {
+          params.set('q', searchTerm.trim());
+        }
+
+        const res = await fetch(`http://localhost:4000/users/moderation/players?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.message || 'Failed to load players');
+        }
+
+        const data = await res.json();
+        const nextPlayers: Player[] = (data.players || []).slice(0, 10);
+        setPlayers(nextPlayers);
+        setSelectedPlayer((current) => {
+          if (!current) return current;
+          const stillExists = nextPlayers.some((p) => p.id === current.id);
+          return stillExists ? current : null;
+        });
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        console.error(err);
+        setPlayersError(err?.message || 'Failed to load players');
+      } finally {
+        setPlayersLoading(false);
+      }
+    };
+
+    fetchPlayers();
+    return () => controller.abort();
+  }, [searchTerm, token, playersRefreshNonce]);
+
+  React.useEffect(() => {
+    if (!token || !selectedPlayer?.id) return;
+
+    const controller = new AbortController();
+    const selectedId = selectedPlayer.id;
+
+    const fetchPlayerDetails = async () => {
+      try {
+        setSelectedPlayerLoading(true);
+        setSelectedPlayerError('');
+
+        const res = await fetch(`http://localhost:4000/users/moderation/players/${selectedId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.message || 'Failed to load player details');
+        }
+
+        const data = await res.json();
+        const details = data.player as Player;
+        setSelectedPlayer((current) => {
+          if (!current || current.id !== selectedId) return current;
+          return { ...current, ...details };
+        });
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        console.error(err);
+        setSelectedPlayerError(err?.message || 'Failed to load player details');
+      } finally {
+        setSelectedPlayerLoading(false);
+      }
+    };
+
+    fetchPlayerDetails();
+    return () => controller.abort();
+  }, [selectedPlayer?.id, token, playersRefreshNonce]);
+
   // Activity data for chart
   const activityData = [
     { day: 'Mon', matches: 145, disputes: 3 },
@@ -260,9 +297,7 @@ export function Moderator() {
     { name: 'Banned', value: 0.5, color: '#7F1D1D' }
   ];
 
-  const filteredPlayers = players.filter(p => 
-    p.username.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredPlayers = players;
 
   const filteredDisputes = disputes.filter(d => {
     if (disputeFilter === 'all') return true;
@@ -272,7 +307,10 @@ export function Moderator() {
   const handleModAction = (playerId: string, action: 'warn' | 'suspend' | 'ban' | 'clear') => {
     (async () => {
       try {
-        if (action === 'ban') {
+        if (action === 'warn') {
+          await warnUser(playerId, actionNote || 'Warned by moderator');
+          alert('User warned');
+        } else if (action === 'ban') {
           await banUser(playerId, actionNote || 'Banned by moderator');
           alert('User banned');
         } else if (action === 'suspend') {
@@ -283,10 +321,8 @@ export function Moderator() {
         } else if (action === 'clear') {
           await unbanUser(playerId);
           alert('Cleared reports / active bans for user');
-        } else {
-          // warn or other actions are logged locally for now
-          console.log(`Action ${action} on player ${playerId} with note: ${actionNote}`);
         }
+        setPlayersRefreshNonce((n) => n + 1);
       } catch (err) {
         console.error(err);
         alert('Action failed');
@@ -295,6 +331,20 @@ export function Moderator() {
       }
     })();
   };
+
+  async function warnUser(userId: string, reason?: string) {
+    if (!token) throw new Error('Not authenticated');
+    const res = await fetch(`http://localhost:4000/users/${userId}/warn`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.message || 'Failed to warn user');
+    }
+    return await res.json();
+  }
 
   async function banUser(userId: string, reason?: string, expiresAt?: string) {
     if (!token) throw new Error('Not authenticated');
@@ -357,6 +407,12 @@ export function Moderator() {
       case 'banned': return 'bg-red-900/20 text-red-300 border-red-900/30';
       default: return 'bg-muted/20 text-muted-foreground border-muted/30';
     }
+  };
+
+  const formatDateTime = (value: string) => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return d.toLocaleString();
   };
 
   // If showing investigation view, render that component
@@ -620,9 +676,21 @@ export function Moderator() {
                     <CardTitle>Player List ({filteredPlayers.length})</CardTitle>
                   </CardHeader>
                   <CardContent>
+                    {playersError && (
+                      <Alert className="mb-3 border-red-500/30 bg-red-500/10">
+                        <AlertCircle className="h-4 w-4 text-red-400" />
+                        <AlertDescription>{playersError}</AlertDescription>
+                      </Alert>
+                    )}
                     <ScrollArea className="h-[600px] pr-4">
                       <div className="space-y-3">
                         <AnimatePresence>
+                          {playersLoading && filteredPlayers.length === 0 && (
+                            <div className="text-sm text-muted-foreground px-1">Loading players...</div>
+                          )}
+                          {!playersLoading && filteredPlayers.length === 0 && !playersError && (
+                            <div className="text-sm text-muted-foreground px-1">No players found.</div>
+                          )}
                           {filteredPlayers.map((player, index) => (
                             <motion.div
                               key={player.id}
@@ -695,6 +763,16 @@ export function Moderator() {
                   <CardContent>
                     {selectedPlayer ? (
                       <div className="space-y-6">
+                        {selectedPlayerError && (
+                          <Alert className="border-red-500/30 bg-red-500/10">
+                            <AlertCircle className="h-4 w-4 text-red-400" />
+                            <AlertDescription>{selectedPlayerError}</AlertDescription>
+                          </Alert>
+                        )}
+                        {selectedPlayerLoading && (
+                          <div className="text-sm text-muted-foreground">Refreshing player details...</div>
+                        )}
+
                         {/* Player Info */}
                         <div className="flex items-center gap-4 pb-4 border-b border-border/50">
                           <Avatar className="h-16 w-16">
@@ -746,8 +824,8 @@ export function Moderator() {
                               <div className="flex items-center justify-between">
                                 <Target className="h-6 w-6 text-blue-400" />
                                 <div className="text-right">
-                                  <div className="text-xl font-bold text-foreground">{selectedPlayer.mmr}</div>
-                                  <div className="text-xs text-muted-foreground">MMR</div>
+                                  <div className="text-xl font-bold text-foreground">{selectedPlayer.totalHours ?? 0}</div>
+                                  <div className="text-xs text-muted-foreground">Hours</div>
                                 </div>
                               </div>
                             </CardContent>
@@ -758,10 +836,10 @@ export function Moderator() {
                               <div className="flex items-center justify-between">
                                 <DollarSign className="h-6 w-6 text-amber-400" />
                                 <div className="text-right">
-                                  <div className={`text-xl font-bold ${selectedPlayer.totalEarnings >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                    ${Math.abs(selectedPlayer.totalEarnings)}
+                                  <div className="text-xl font-bold text-emerald-400">
+                                    ${(selectedPlayer.walletBalance ?? selectedPlayer.totalEarnings ?? 0).toFixed(2)}
                                   </div>
-                                  <div className="text-xs text-muted-foreground">Earnings</div>
+                                  <div className="text-xs text-muted-foreground">Wallet</div>
                                 </div>
                               </div>
                             </CardContent>
@@ -772,11 +850,15 @@ export function Moderator() {
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Account Created:</span>
-                            <span className="text-foreground font-semibold">{selectedPlayer.accountCreated}</span>
+                            <span className="text-foreground font-semibold">{formatDateTime(selectedPlayer.accountCreated)}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Last Active:</span>
-                            <span className="text-foreground font-semibold">{selectedPlayer.lastActive}</span>
+                            <span className="text-foreground font-semibold">{formatDateTime(selectedPlayer.lastActive)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Escrow Balance:</span>
+                            <span className="text-foreground font-semibold">${(selectedPlayer.escrowBalance ?? 0).toFixed(2)}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Total Reports:</span>
@@ -791,7 +873,9 @@ export function Moderator() {
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Win Rate:</span>
                             <span className="text-foreground font-semibold">
-                              {((selectedPlayer.wins / selectedPlayer.totalMatches) * 100).toFixed(1)}%
+                              {selectedPlayer.totalMatches > 0
+                                ? ((selectedPlayer.wins / selectedPlayer.totalMatches) * 100).toFixed(1)
+                                : '0.0'}%
                             </span>
                           </div>
                         </div>

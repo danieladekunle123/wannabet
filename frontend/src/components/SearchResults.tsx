@@ -5,6 +5,8 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import DOMPurify from 'dompurify';
 import {
   Search,
   User,
@@ -20,9 +22,12 @@ import {
   Clock,
   DollarSign,
   Crown,
-  Target
+  Target,
+  Loader2,
 } from 'lucide-react';
 import { UserAvatar } from './UserAvatar';
+import { GameSearchResult } from './games/GameSearchResult';
+import { getGameDetails, searchGames, type RawgGameDetails, type RawgGameSummary } from '../services/rawgService';
 
 interface SearchResultsProps {
   onNavigate: (tab: string, query?: string) => void;
@@ -217,17 +222,37 @@ const mockScrims = [
 export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsProps) {
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchInput, setSearchInput] = useState(searchQuery);
+  const [debouncedSearchInput, setDebouncedSearchInput] = useState(searchQuery);
   const { user } = useAuth();
   const [results, setResults] = useState<{ users: any[]; matches: any[]; games: any[] }>({ users: [], matches: [], games: [] });
+  const [gameResults, setGameResults] = useState<RawgGameSummary[]>([]);
+  const [gamesLoading, setGamesLoading] = useState(false);
+  const [gamesError, setGamesError] = useState('');
+  const [selectedGameId, setSelectedGameId] = useState<number | null>(null);
+  const [selectedGame, setSelectedGame] = useState<RawgGameDetails | null>(null);
+  const [gameDetailsLoading, setGameDetailsLoading] = useState(false);
+  const [gameDetailsError, setGameDetailsError] = useState('');
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
   useEffect(() => {
     setSearchInput(searchQuery || '');
+    setDebouncedSearchInput(searchQuery || '');
   }, [searchQuery]);
 
   useEffect(() => {
-    const q = (searchInput || '').trim();
-    if (!q) return;
+    const timer = window.setTimeout(() => {
+      setDebouncedSearchInput(searchInput);
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    const q = (debouncedSearchInput || '').trim();
+    if (!q) {
+      setResults({ users: [], matches: [], games: [] });
+      return;
+    }
     let mounted = true;
     fetch(`${API_URL}/search?q=${encodeURIComponent(q)}`)
       .then((r) => r.json())
@@ -240,10 +265,76 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
         setResults({ users: [], matches: [], games: [] });
       });
     return () => { mounted = false; };
-  }, [searchInput]);
+  }, [API_URL, debouncedSearchInput]);
+
+  useEffect(() => {
+    const q = (debouncedSearchInput || '').trim();
+    if (!q) {
+      setGameResults([]);
+      setGamesError('');
+      setGamesLoading(false);
+      return;
+    }
+
+    let mounted = true;
+    setGamesLoading(true);
+    setGamesError('');
+
+    searchGames(q)
+      .then((data) => {
+        if (!mounted) return;
+        setGameResults(data.results || []);
+      })
+      .catch((err: any) => {
+        if (!mounted) return;
+        setGameResults([]);
+        setGamesError(err?.message || 'Failed to search games');
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setGamesLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [debouncedSearchInput]);
+
+  useEffect(() => {
+    if (!selectedGameId) {
+      setSelectedGame(null);
+      setGameDetailsError('');
+      setGameDetailsLoading(false);
+      return;
+    }
+
+    let mounted = true;
+    setGameDetailsLoading(true);
+    setGameDetailsError('');
+
+    getGameDetails(selectedGameId)
+      .then((data) => {
+        if (!mounted) return;
+        setSelectedGame(data);
+      })
+      .catch((err: any) => {
+        if (!mounted) return;
+        setSelectedGame(null);
+        setGameDetailsError(err?.message || 'Failed to load game details');
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setGameDetailsLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedGameId]);
 
   // Use API results when available, otherwise fall back to mock slices for lobbies/tournaments
   const filteredUsers = (results.users || []).slice(0, 20);
+  const filteredGames = gameResults;
   const filteredLobbies = mockLobbies.filter(lobby =>
     lobby.title.toLowerCase().includes(searchInput.toLowerCase()) ||
     lobby.game.toLowerCase().includes(searchInput.toLowerCase())
@@ -257,7 +348,7 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
     scrim.game.toLowerCase().includes(searchInput.toLowerCase())
   );
 
-  const totalResults = filteredUsers.length + filteredLobbies.length + filteredTournaments.length + filteredScrims.length;
+  const totalResults = filteredUsers.length + filteredGames.length + filteredLobbies.length + filteredTournaments.length + filteredScrims.length;
 
   return (
     <div className="space-y-6 animate-fadeInUp">
@@ -296,7 +387,7 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
       {/* Filter Tabs */}
       <Tabs value={activeFilter} onValueChange={setActiveFilter} className="space-y-6">
         <div className="overflow-x-auto pb-2 flex items-center justify-center">
-          <TabsList className="inline-flex min-w-full sm:grid sm:w-full sm:grid-cols-5 bg-muted/50 p-1">
+          <TabsList className="inline-flex min-w-full sm:grid sm:w-full sm:grid-cols-6 bg-muted/50 p-1">
             <TabsTrigger 
               value="all"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground whitespace-nowrap px-3 sm:px-4"
@@ -320,6 +411,14 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
               <Gamepad2 className="h-4 w-4 mr-2" />
               Lobbies
               <Badge className="ml-2 bg-primary/20">{filteredLobbies.length}</Badge>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="games"
+              className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground whitespace-nowrap px-3 sm:px-4"
+            >
+              <Crown className="h-4 w-4 mr-2" />
+              Games
+              <Badge className="ml-2 bg-primary/20">{filteredGames.length}</Badge>
             </TabsTrigger>
             <TabsTrigger 
               value="tournaments"
@@ -427,6 +526,42 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
                   </Card>
                 ))}
               </div>
+            </div>
+          )}
+
+          {(gamesLoading || filteredGames.length > 0 || (!!debouncedSearchInput.trim() && !gamesLoading)) && (
+            <div>
+              <h3 className="font-semibold text-foreground mb-4 flex items-center">
+                <Crown className="h-5 w-5 mr-2 text-primary" />
+                Games ({filteredGames.length})
+              </h3>
+
+              {gamesLoading && (
+                <div className="text-sm text-muted-foreground flex items-center gap-2 mb-3">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Searching games...
+                </div>
+              )}
+
+              {gamesError && (
+                <p className="text-sm text-red-400 mb-3">{gamesError}</p>
+              )}
+
+              {!gamesLoading && !gamesError && filteredGames.length === 0 && debouncedSearchInput.trim() && (
+                <p className="text-sm text-muted-foreground mb-3">No games found</p>
+              )}
+
+              {filteredGames.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredGames.slice(0, 6).map((game) => (
+                    <GameSearchResult
+                      key={game.id}
+                      game={game}
+                      onClick={() => setSelectedGameId(game.id)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -669,6 +804,37 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
           </div>
         </TabsContent>
 
+        <TabsContent value="games" className="space-y-4">
+          {gamesLoading && (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Searching games...
+            </div>
+          )}
+
+          {gamesError && (
+            <p className="text-sm text-red-400">{gamesError}</p>
+          )}
+
+          {!gamesLoading && !gamesError && filteredGames.length === 0 && debouncedSearchInput.trim() && (
+            <Card className="border-dashed">
+              <CardContent className="p-8 text-center">
+                <p className="text-sm text-muted-foreground">No games found</p>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredGames.map((game) => (
+              <GameSearchResult
+                key={game.id}
+                game={game}
+                onClick={() => setSelectedGameId(game.id)}
+              />
+            ))}
+          </div>
+        </TabsContent>
+
         <TabsContent value="tournaments" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredTournaments.map((tournament, index) => (
@@ -760,6 +926,64 @@ export function SearchResults({ onNavigate, searchQuery = '' }: SearchResultsPro
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={selectedGameId !== null} onOpenChange={(open) => !open && setSelectedGameId(null)}>
+        <DialogContent className="game-modal max-w-2xl overflow-hidden">
+          <DialogHeader className="sr-only">
+            <DialogTitle>{selectedGame?.name || 'Game Details'}</DialogTitle>
+            <DialogDescription>
+              Detailed game information including rating, release date, genres, and description.
+            </DialogDescription>
+          </DialogHeader>
+
+          {gameDetailsLoading && (
+            <div className="py-10 text-sm text-muted-foreground flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading game details...
+            </div>
+          )}
+
+          {gameDetailsError && !gameDetailsLoading && (
+            <p className="text-sm text-red-400">{gameDetailsError}</p>
+          )}
+
+          {selectedGame && !gameDetailsLoading && (
+            <div className="space-y-4 h-full min-h-0 flex flex-col">
+              <DialogHeader>
+                <DialogTitle className="text-2xl">{selectedGame.name}</DialogTitle>
+                <DialogDescription className="sr-only">
+                  Game details and description.
+                </DialogDescription>
+              </DialogHeader>
+
+              {selectedGame.background_image && (
+                <img
+                  src={selectedGame.background_image}
+                  alt={selectedGame.name}
+                  className="w-full h-52 object-cover rounded-md shrink-0"
+                />
+              )}
+
+              <div className="flex flex-wrap items-center gap-2 text-sm shrink-0">
+                <Badge variant="outline">Rating: {typeof selectedGame.rating === 'number' ? selectedGame.rating.toFixed(1) : 'N/A'}</Badge>
+                <Badge variant="outline">Released: {selectedGame.released || 'Unknown'}</Badge>
+                {(selectedGame.genres || []).map((genre) => (
+                  <Badge key={genre.id} className="bg-primary/20 text-primary border-primary/30">
+                    {genre.name}
+                  </Badge>
+                ))}
+              </div>
+
+              <div
+                className="game-content-scroll prose prose-invert max-w-none text-sm"
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(selectedGame.description || '<p>No description available.</p>'),
+                }}
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* No Results */}
       {totalResults === 0 && (
