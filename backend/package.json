@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "cd ../frontend && npm install && npm run build && rm -rf ../backend/public && cp -r dist ../backend/public",
+    "build": "cd ../frontend && npm install && npm run build && rm -rf ../backend/public && cp -r build ../backend/public",
     "start": "ts-node --transpile-only src/index.ts"
   },
   "keywords": [],
