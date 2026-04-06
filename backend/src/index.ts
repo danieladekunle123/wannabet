@@ -357,7 +357,7 @@ function startEventScheduler() {
 startEventScheduler();
 
 // Serve frontend static files (production)
-const frontendDist = path.join(__dirname, "../../frontend/dist");
+const frontendDist = path.join(process.cwd(), "public");
 app.use(express.static(frontendDist));
 app.use((_req, res) => {
   res.sendFile(path.join(frontendDist, "index.html"));
