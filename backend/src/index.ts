@@ -155,10 +155,6 @@ app.use("/api/region", regionRouter);
 app.use("/api/regions", regionsRouter);
 app.use("/api/esports", esportsRouter);
 
-app.get("/", (_req, res) => {
-  res.send("WannaBet API is running. Try GET /health");
-});
-
 const io = new IOServer(server, {
   cors: {
     origin: ["http://localhost:3000", "http://localhost:3002"],
@@ -359,6 +355,13 @@ function startEventScheduler() {
 }
 
 startEventScheduler();
+
+// Serve frontend static files (production)
+const frontendDist = path.join(__dirname, "../../frontend/dist");
+app.use(express.static(frontendDist));
+app.get("*", (_req, res) => {
+  res.sendFile(path.join(frontendDist, "index.html"));
+});
 
 server.listen(env.PORT, () => {
   console.log(`API listening on http://localhost:${env.PORT}`);
