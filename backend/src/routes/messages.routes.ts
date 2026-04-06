@@ -109,6 +109,26 @@ const isUuid = (value: string) =>
     value,
   );
 
+const isTeamChannelId = (value: string) => value?.startsWith("team:");
+
+const getTeamIdFromChannel = (value: string) =>
+  isTeamChannelId(value) ? value.replace(/^team:/, "") : "";
+
+const ensureTeamMember = async (channelId: string, userId: string) => {
+  const teamId = getTeamIdFromChannel(channelId);
+  if (!teamId) return false;
+  const member = await prisma.teamMember.findUnique({
+    where: {
+      teamId_userId: {
+        teamId,
+        userId,
+      },
+    },
+    select: { id: true },
+  });
+  return !!member;
+};
+
 const findBlockBetweenUsers = async (firstId: string, secondId: string) => {
   return prisma.blockedUser.findFirst({
     where: {
@@ -179,7 +199,7 @@ router.get("/conversations", requireAuth, async (req: any, res) => {
   });
   const blockedIds = new Set(blocked.map((b) => b.blockedId));
 
-  const data = await Promise.all(
+  const dmData = await Promise.all(
     conversations.map(async (conversation) => {
       const members = [conversation.firstUserId, conversation.secondUserId];
       const otherUser =
@@ -196,11 +216,34 @@ router.get("/conversations", requireAuth, async (req: any, res) => {
         orderBy: { createdAt: "desc" },
       });
 
+      const unread = await prisma.message.count({
+        where: {
+          readAt: null,
+          senderId: { not: userId },
+          OR: [
+            { channelId: conversation.key },
+            {
+              AND: [
+                { senderId: conversation.firstUserId },
+                { receiverId: conversation.secondUserId },
+              ],
+            },
+            {
+              AND: [
+                { senderId: conversation.secondUserId },
+                { receiverId: conversation.firstUserId },
+              ],
+            },
+          ],
+        },
+      });
+
       return {
         id: conversation.key,
         key: conversation.key,
         type: "dm",
         members,
+        unread,
         lastMessage: lastMessage ? getMessagePreview(lastMessage) : "",
         updatedAt: lastMessage?.createdAt || conversation.updatedAt,
         name:
@@ -220,7 +263,59 @@ router.get("/conversations", requireAuth, async (req: any, res) => {
     }),
   );
 
-  return res.json({ data: data.filter(Boolean) });
+  const teamMemberships = await prisma.teamMember.findMany({
+    where: { userId },
+    include: {
+      team: {
+        include: {
+          chat: true,
+          members: {
+            select: {
+              userId: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const teamData = await Promise.all(
+    teamMemberships.map(async (membership) => {
+      const channelId =
+        membership.team.chat?.chatId || `team:${membership.teamId}`;
+
+      const lastMessage = await prisma.message.findFirst({
+        where: { channelId },
+        orderBy: { createdAt: "desc" },
+      });
+
+      const unread = await prisma.message.count({
+        where: {
+          channelId,
+          readAt: null,
+          senderId: { not: userId },
+        },
+      });
+
+      return {
+        id: channelId,
+        key: channelId,
+        type: "team",
+        members: membership.team.members.map((m) => m.userId),
+        unread,
+        lastMessage: lastMessage ? getMessagePreview(lastMessage) : "",
+        updatedAt: lastMessage?.createdAt || membership.team.createdAt,
+        name: membership.team.name,
+        avatarUrl: membership.team.profileImageUrl || null,
+        profileImageUrl: membership.team.profileImageUrl || null,
+        game: membership.team.game,
+        teamId: membership.teamId,
+        canManageTeam: membership.role === "commander",
+      };
+    }),
+  );
+
+  return res.json({ data: [...dmData.filter(Boolean), ...teamData] });
 });
 
 router.post("/conversations/dm/:userId", requireAuth, async (req: any, res) => {
@@ -304,6 +399,11 @@ router.get("/:conversationId", requireAuth, async (req: any, res) => {
     return res.status(403).json({ message: "Forbidden" });
   }
 
+  if (isTeamChannelId(channelKey)) {
+    const allowed = await ensureTeamMember(channelKey, userId);
+    if (!allowed) return res.status(403).json({ message: "Forbidden" });
+  }
+
   let messages;
   if (channelKey.startsWith("dm:")) {
     const [a, b] =
@@ -324,15 +424,133 @@ router.get("/:conversationId", requireAuth, async (req: any, res) => {
         ],
       },
       orderBy: { createdAt: "asc" },
+      include: { sender: { select: { id: true, username: true } } },
     });
   } else {
     messages = await prisma.message.findMany({
       where: { channelId: channelKey },
       orderBy: { createdAt: "asc" },
+      include: { sender: { select: { id: true, username: true } } },
     });
   }
 
   return res.json({ data: messages });
+});
+
+router.post("/:conversationId/read", requireAuth, async (req: any, res) => {
+  try {
+    const userId = req.user.userId;
+    const { conversationId } = req.params;
+
+    let channelKey = normalizeDmConversationId(conversationId);
+    let participants: string[] = extractDmParticipants(channelKey);
+
+    if (isUuid(conversationId)) {
+      const conversation = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+      });
+      if (!conversation) {
+        return res.status(404).json({ message: "Conversation not found" });
+      }
+      channelKey = conversation.key;
+      participants = [conversation.firstUserId, conversation.secondUserId];
+    } else if (channelKey.startsWith("dm:")) {
+      const existing = await prisma.conversation.findFirst({
+        where: { key: channelKey },
+      });
+      if (existing) {
+        participants = [existing.firstUserId, existing.secondUserId];
+        channelKey = existing.key;
+      }
+    }
+
+    if (participants.length && !participants.includes(userId)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    if (isTeamChannelId(channelKey)) {
+      const allowed = await ensureTeamMember(channelKey, userId);
+      if (!allowed) return res.status(403).json({ message: "Forbidden" });
+    }
+
+    let where: any;
+    if (channelKey.startsWith("dm:")) {
+      const [a, b] =
+        participants.length === 2
+          ? participants
+          : extractDmParticipants(channelKey);
+      where = {
+        readAt: null,
+        senderId: { not: userId },
+        OR: [
+          { channelId: channelKey },
+          { channelId: conversationId },
+          ...(a && b
+            ? [
+                { AND: [{ senderId: a }, { receiverId: b }] },
+                { AND: [{ senderId: b }, { receiverId: a }] },
+              ]
+            : []),
+        ],
+      };
+    } else {
+      where = {
+        channelId: channelKey,
+        readAt: null,
+        senderId: { not: userId },
+      };
+    }
+
+    const unreadMessages = await prisma.message.findMany({
+      where,
+      select: { id: true },
+    });
+
+    if (!unreadMessages.length) {
+      return res.json({ data: { updated: 0, messageIds: [] } });
+    }
+
+    const readAt = new Date();
+    const messageIds = unreadMessages.map((msg) => msg.id);
+
+    await prisma.message.updateMany({
+      where: { id: { in: messageIds } },
+      data: { readAt },
+    });
+
+    const payload = {
+      conversationId: channelKey,
+      readerId: userId,
+      readAt: readAt.toISOString(),
+      messageIds,
+    };
+
+    const io = getIo();
+    if (io) {
+      if (channelKey) {
+        io.to(`channel:${channelKey}`).emit("message:read", payload);
+      }
+      if (participants.length === 2) {
+        const otherUserId = participants.find((id) => id !== userId);
+        if (otherUserId) {
+          io.to(`user:${otherUserId}`)
+            .except(`channel:${channelKey}`)
+            .emit("message:read", payload);
+        }
+      }
+    }
+
+    return res.json({
+      data: {
+        updated: messageIds.length,
+        messageIds,
+        readAt: readAt.toISOString(),
+      },
+    });
+  } catch (err) {
+    console.error("messages read error", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
 });
 
 // create a message (persist + broadcast)
@@ -366,11 +584,9 @@ router.post("/", requireAuth, async (req: any, res) => {
 
     if (!conversationId || (!content && !mediaUrl)) {
       console.warn("Invalid message payload", { body: req.body });
-      return res
-        .status(400)
-        .json({
-          message: "conversationId and content or mediaUrl are required",
-        });
+      return res.status(400).json({
+        message: "conversationId and content or mediaUrl are required",
+      });
     }
 
     const senderId = req.user?.userId;
@@ -437,6 +653,14 @@ router.post("/", requireAuth, async (req: any, res) => {
       receiverId = dmParticipants.find((p) => p !== senderId) || null;
     }
 
+    if (finalChannelId && isTeamChannelId(finalChannelId)) {
+      const allowed = await ensureTeamMember(finalChannelId, senderId);
+      if (!allowed) {
+        return res.status(403).json({ message: "Not a team member" });
+      }
+      receiverId = null;
+    }
+
     if (receiverId) {
       const block = await findBlockBetweenUsers(senderId, receiverId);
       if (block) {
@@ -459,6 +683,7 @@ router.post("/", requireAuth, async (req: any, res) => {
         receiverId,
         replyToId: body?.replyToId || null,
       },
+      include: { sender: { select: { id: true, username: true } } },
     });
 
     const io = getIo();
@@ -506,6 +731,11 @@ router.post("/:id/reply", requireAuth, async (req: any, res) => {
     if (!orig)
       return res.status(404).json({ message: "original message not found" });
 
+    if (orig.channelId && isTeamChannelId(orig.channelId)) {
+      const allowed = await ensureTeamMember(orig.channelId, senderId);
+      if (!allowed) return res.status(403).json({ message: "Forbidden" });
+    }
+
     const counterpartId =
       orig.senderId === senderId ? orig.receiverId : orig.senderId;
     if (counterpartId) {
@@ -534,6 +764,7 @@ router.post("/:id/reply", requireAuth, async (req: any, res) => {
         receiverId: orig.receiverId || null,
         replyToId: originalId,
       },
+      include: { sender: { select: { id: true, username: true } } },
     });
 
     const io = getIo();
@@ -582,10 +813,14 @@ router.patch("/:id", requireAuth, async (req: any, res) => {
     if (!msg) return res.status(404).json({ message: "not found" });
     if (msg.senderId !== req.user.userId)
       return res.status(403).json({ message: "forbidden" });
+    if (msg.channelId && isTeamChannelId(msg.channelId)) {
+      const allowed = await ensureTeamMember(msg.channelId, req.user.userId);
+      if (!allowed) return res.status(403).json({ message: "forbidden" });
+    }
 
     const updated = await prisma.message.update({
       where: { id },
-      data: { content },
+      data: { content, editedAt: new Date() },
     });
     const io = getIo();
     if (io) {
@@ -611,6 +846,10 @@ router.delete("/:id", requireAuth, async (req: any, res) => {
     if (!msg) return res.status(404).json({ message: "not found" });
     if (msg.senderId !== req.user.userId)
       return res.status(403).json({ message: "forbidden" });
+    if (msg.channelId && isTeamChannelId(msg.channelId)) {
+      const allowed = await ensureTeamMember(msg.channelId, req.user.userId);
+      if (!allowed) return res.status(403).json({ message: "forbidden" });
+    }
 
     await prisma.message.delete({ where: { id } });
     const io = getIo();

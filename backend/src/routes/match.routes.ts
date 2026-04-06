@@ -2,22 +2,107 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
+import { getConfig } from "../lib/platformConfig";
+import { updateTrustScore } from "../lib/trustScore";
+import { getIo } from "../lib/socket";
 
 export const matchRouter = Router();
 
 const CreateMatchSchema = z.object({
   game: z.string().min(2).max(50),
-  stake: z.number().positive().max(10000),
+  stake: z.number().min(0).max(10000),
+  matchType: z.enum(["scrim", "wager", "custom"]).optional(),
+  title: z.string().min(1).max(140).optional(),
+  description: z.string().max(2000).optional(),
+  participantCount: z.number().int().min(2).max(128).optional(),
+  teamSize: z.number().int().min(1).max(20).optional(),
+  region: z.string().max(120).optional(),
+  tournamentFormat: z.string().max(120).optional(),
+  startAt: z.string().optional(),
+  joinDeadlineAt: z.string().optional(),
+  privateMatch: z.boolean().optional(),
 });
 
 // POST /matches  (create match + lock escrow)
 matchRouter.post("/", requireAuth, async (req, res) => {
   try {
-    const { game, stake } = CreateMatchSchema.parse(req.body);
+    const {
+      game,
+      stake,
+      matchType,
+      title,
+      description,
+      participantCount,
+      teamSize,
+      region,
+      tournamentFormat,
+      startAt,
+      joinDeadlineAt,
+      privateMatch,
+    } = CreateMatchSchema.parse(req.body);
     const userId = req.user!.userId;
 
-    // Ensure wallet exists for user (create if missing). If created with zero balance
-    // the subsequent balance check will return a clear 'Insufficient balance' error.
+    const parsedStartAt = startAt ? new Date(startAt) : null;
+    const parsedJoinDeadlineAt = joinDeadlineAt
+      ? new Date(joinDeadlineAt)
+      : null;
+    const normalizedStartAt =
+      parsedStartAt && !Number.isNaN(parsedStartAt.getTime())
+        ? parsedStartAt.toISOString()
+        : null;
+    const normalizedJoinDeadlineAt =
+      parsedJoinDeadlineAt && !Number.isNaN(parsedJoinDeadlineAt.getTime())
+        ? parsedJoinDeadlineAt.toISOString()
+        : null;
+    const normalizedMatchType = matchType || (stake > 0 ? "wager" : "scrim");
+
+    // Enforce platform config rules
+    const config = await getConfig();
+
+    if (stake > 0 && stake < config.minWagerAmount) {
+      return res.status(400).json({
+        message: `Minimum wager amount is $${config.minWagerAmount}`,
+      });
+    }
+    if (stake > config.maxWagerAmount) {
+      return res.status(400).json({
+        message: `Maximum wager amount is $${config.maxWagerAmount}`,
+      });
+    }
+
+    // Trust score check
+    if (config.trustScoreThreshold > 0) {
+      const profile = await prisma.profile.findUnique({
+        where: { userId },
+        select: { trustScore: true },
+      });
+      if ((profile?.trustScore ?? 87) < config.trustScoreThreshold) {
+        return res.status(403).json({
+          message: `Your trust score is too low to create matches. Minimum required: ${config.trustScoreThreshold}%`,
+        });
+      }
+    }
+
+    // Max active matches check
+    const activeMatchCount = await prisma.match.count({
+      where: {
+        hostId: userId,
+        status: {
+          notIn: [
+            "finished",
+            "completed",
+            "cancelled",
+            "COMPLETED",
+            "CANCELLED",
+          ],
+        },
+      },
+    });
+    if (activeMatchCount >= config.maxActiveMatchesPerUser) {
+      return res.status(400).json({
+        message: `You have reached the maximum of ${config.maxActiveMatchesPerUser} active matches`,
+      });
+    }
     const wallet = await prisma.wallet.upsert({
       where: { userId },
       create: { userId, balance: 0, escrow: 0 },
@@ -35,7 +120,7 @@ matchRouter.post("/", requireAuth, async (req, res) => {
         data: {
           game,
           stake,
-          status: "OPEN",
+          status: "UPCOMING",
           hostId: userId,
         },
         select: {
@@ -61,10 +146,23 @@ matchRouter.post("/", requireAuth, async (req, res) => {
       const entry = await tx.ledgerEntry.create({
         data: {
           walletId: wallet.id,
-          type: "MATCH_ESCROW_LOCK",
+          type: "escrow_lock",
           amount: stake,
+          matchId: match.id,
         },
       });
+
+      // 4) Escrow record
+      if (stake > 0) {
+        await tx.escrow.create({
+          data: {
+            userId,
+            matchId: match.id,
+            amount: stake,
+            status: "locked",
+          },
+        });
+      }
 
       return { match, updatedWallet, entry };
     });
@@ -75,13 +173,27 @@ matchRouter.post("/", requireAuth, async (req, res) => {
         data: {
           userId: userId,
           actorId: userId,
-          type: 'MATCH_CREATED',
-          message: `Created match ${result.match.id} (${game}) for $${stake}`,
-          meta: { matchId: result.match.id, game, stake },
+          type: "MATCH_CREATED",
+          message: `Created ${normalizedMatchType} match ${result.match.id} (${game}) for $${stake}`,
+          meta: {
+            matchId: result.match.id,
+            game,
+            stake,
+            matchType: normalizedMatchType,
+            title: title || `${game} Match`,
+            description: description || "",
+            participantCount: participantCount || 2,
+            teamSize: teamSize || 1,
+            region: region || "Global",
+            tournamentFormat: tournamentFormat || null,
+            startAt: normalizedStartAt,
+            joinDeadlineAt: normalizedJoinDeadlineAt,
+            privateMatch: Boolean(privateMatch),
+          },
         },
       });
     } catch (err) {
-      console.error('failed to create player log', err);
+      console.error("failed to create player log", err);
     }
 
     return res.status(201).json({
@@ -91,6 +203,27 @@ matchRouter.post("/", requireAuth, async (req, res) => {
     });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });
+  }
+});
+
+// GET /matches/featured  (most popular open match by stake — public)
+matchRouter.get("/featured", async (_req, res) => {
+  try {
+    const match = await prisma.match.findFirst({
+      where: { status: { in: ["OPEN", "UPCOMING"] }, joinerId: null },
+      orderBy: { stake: "desc" },
+      select: {
+        id: true,
+        game: true,
+        stake: true,
+        status: true,
+        createdAt: true,
+        host: { select: { username: true } },
+      },
+    });
+    return res.json({ match: match ?? null });
+  } catch (err: any) {
+    return res.status(500).json({ message: err.message ?? "Server error" });
   }
 });
 
@@ -119,7 +252,9 @@ matchRouter.post("/:id/join", requireAuth, async (req, res) => {
       });
 
       if (!match) throw new Error("Match not found");
-      if (match.status !== "OPEN") throw new Error("Match not open");
+      if (!["OPEN", "UPCOMING"].includes(match.status)) {
+        throw new Error("Match not open");
+      }
       if (match.hostId === userId)
         throw new Error("Host cannot join own match");
       if (match.joinerId) throw new Error("Match already has a joiner");
@@ -145,7 +280,7 @@ matchRouter.post("/:id/join", requireAuth, async (req, res) => {
         data: {
           userId: userId,
           actorId: userId,
-          type: 'MATCH_JOINED',
+          type: "MATCH_JOINED",
           message: `Joined match ${matchId}`,
           meta: { matchId },
         },
@@ -155,20 +290,52 @@ matchRouter.post("/:id/join", requireAuth, async (req, res) => {
         where: { id: matchId },
         data: {
           joinerId: userId,
-          status: "ACTIVE",
+          status: "UPCOMING",
         },
       });
 
       await tx.ledgerEntry.create({
         data: {
           walletId: wallet.id,
-          type: "ESCROW_LOCK_JOINER",
+          type: "escrow_lock",
           amount: match.stake,
+          matchId,
         },
       });
 
+      // Escrow record for joiner
+      if (match.stake > 0) {
+        await tx.escrow.create({
+          data: {
+            userId,
+            matchId,
+            amount: match.stake,
+            status: "locked",
+          },
+        });
+      }
+
       return updatedMatch;
     });
+
+    // Notify the host that someone joined their match
+    try {
+      const joiner = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { username: true },
+      });
+      const io = getIo();
+      io.to(`user:${result.hostId}`).emit("notification:new", {
+        id: `match-join-${result.id}-${Date.now()}`,
+        type: "match-joined",
+        title: "Someone joined your match",
+        body: `${joiner?.username ?? "A player"} joined your ${result.game} match`,
+        timestamp: new Date().toISOString(),
+        data: { matchId: result.id, game: result.game },
+      });
+    } catch {
+      // socket emit failure is non-fatal
+    }
 
     res.status(200).json({ match: result });
   } catch (err: any) {
@@ -232,13 +399,13 @@ matchRouter.post("/:id/report", requireAuth, async (req, res) => {
         data: {
           userId: reporterId,
           actorId: reporterId,
-          type: 'MATCH_REPORTED',
+          type: "MATCH_REPORTED",
           message: `Reported result for match ${matchId}; reported winner ${winnerId}`,
           meta: { matchId, reportedWinnerId: winnerId },
         },
       });
     } catch (err) {
-      console.error('failed to create player log', err);
+      console.error("failed to create player log", err);
     }
 
     return res.json({ match: updatedMatch });
@@ -248,6 +415,69 @@ matchRouter.post("/:id/report", requireAuth, async (req, res) => {
 });
 
 // POST /matches/:id/confirm
+// DELETE /matches/:id  — cancel match (host only, no joiner, refunds escrow)
+matchRouter.delete("/:id", requireAuth, async (req, res) => {
+  try {
+    const matchId = req.params.id;
+    const userId = req.user!.userId;
+
+    const match = await prisma.match.findUnique({ where: { id: matchId } });
+    if (!match) return res.status(404).json({ message: "Match not found" });
+    if (match.hostId !== userId)
+      return res
+        .status(403)
+        .json({ message: "Only the host can cancel this match" });
+    if (match.joinerId)
+      return res.status(400).json({
+        message: "Cannot cancel a match that already has a participant",
+      });
+    if (
+      ["COMPLETED", "CANCELLED", "completed", "cancelled"].includes(
+        match.status,
+      )
+    )
+      return res
+        .status(400)
+        .json({ message: "Match is already completed or cancelled" });
+
+    await prisma.$transaction(async (tx) => {
+      // Refund host escrow back to balance
+      if (match.stake > 0) {
+        const wallet = await tx.wallet.findUnique({ where: { userId } });
+        if (wallet) {
+          await tx.wallet.update({
+            where: { id: wallet.id },
+            data: {
+              escrow: { decrement: match.stake },
+              balance: { increment: match.stake },
+            },
+          });
+          await tx.ledgerEntry.create({
+            data: {
+              walletId: wallet.id,
+              type: "escrow_refund",
+              amount: match.stake,
+              matchId,
+            },
+          });
+        }
+        await tx.escrow.updateMany({
+          where: { matchId, status: "locked" },
+          data: { status: "refunded" },
+        });
+      }
+      await tx.match.update({
+        where: { id: matchId },
+        data: { status: "CANCELLED" },
+      });
+    });
+
+    return res.json({ ok: true });
+  } catch (err: any) {
+    return res.status(400).json({ message: err.message ?? "Bad request" });
+  }
+});
+
 matchRouter.post("/:id/confirm", requireAuth, async (req, res) => {
   try {
     const matchId = req.params.id;
@@ -317,15 +547,23 @@ matchRouter.post("/:id/confirm", requireAuth, async (req, res) => {
         data: [
           {
             walletId: winnerWallet.id,
-            type: "PAYOUT_WIN",
+            type: "payout",
             amount: pot,
+            matchId,
           },
           {
             walletId: loserWallet.id,
-            type: "PAYOUT_LOSS",
-            amount: stake,
+            type: "payout",
+            amount: -stake,
+            matchId,
           },
         ],
+      });
+
+      // Release all escrow rows for this match
+      await tx.escrow.updateMany({
+        where: { matchId, status: "locked" },
+        data: { status: "released" },
       });
 
       const completedMatch = await tx.match.update({
@@ -339,14 +577,14 @@ matchRouter.post("/:id/confirm", requireAuth, async (req, res) => {
           {
             userId: winnerId,
             actorId: confirmerId,
-            type: 'MATCH_WON',
+            type: "MATCH_WON",
             message: `Won match ${matchId} and received $${pot}`,
             meta: { matchId, amount: pot },
           },
           {
             userId: loserId,
             actorId: confirmerId,
-            type: 'MATCH_LOST',
+            type: "MATCH_LOST",
             message: `Lost match ${matchId}`,
             meta: { matchId, amount: stake },
           },
@@ -355,6 +593,17 @@ matchRouter.post("/:id/confirm", requireAuth, async (req, res) => {
 
       return completedMatch;
     });
+
+    // Both the reporter and the confirmer agreed on the correct result → reward honesty
+    // Fire-and-forget; failures are logged internally but must not affect the response
+    // Zero-stake (scrim/free) matches do not award trust — only penalise on disputes
+    const reporterId = match.reportedById!;
+    if (match.stake > 0) {
+      void Promise.all([
+        updateTrustScore(reporterId, "CORRECT_SUBMISSION", matchId),
+        updateTrustScore(confirmerId, "CORRECT_SUBMISSION", matchId),
+      ]);
+    }
 
     return res.json({ match: result });
   } catch (err: any) {

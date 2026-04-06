@@ -1,0 +1,41 @@
+/* App-wide responsive safety rails */
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+*,
+*::before,
+*::after {
+  min-width: 0;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+li,
+label,
+td,
+th {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Keep overlays and popovers inside viewport on narrow screens */
+[data-radix-popper-content-wrapper] {
+  max-width: calc(100vw - 1rem);
+}

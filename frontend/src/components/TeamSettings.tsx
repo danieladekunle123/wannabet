@@ -1,18 +1,34 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardHeader } from './ui/card';
-import { Button } from './ui/button';
-import { Badge } from './ui/badge';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Textarea } from './ui/textarea';
-import { Avatar, AvatarFallback } from './ui/avatar';
-import { Switch } from './ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Separator } from './ui/separator';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Slider } from './ui/slider';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
-import { 
+import React, { useState } from "react";
+import { Card, CardContent, CardHeader } from "./ui/card";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Textarea } from "./ui/textarea";
+import { Avatar, AvatarFallback } from "./ui/avatar";
+import { Switch } from "./ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { Separator } from "./ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import { Slider } from "./ui/slider";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "./ui/alert-dialog";
+import {
   ArrowLeft,
   Save,
   Users,
@@ -32,70 +48,115 @@ import {
   AlertTriangle,
   CheckCircle2,
   X,
-  Copy
-} from 'lucide-react';
+  Copy,
+} from "lucide-react";
 
 interface TeamSettingsProps {
   onNavigate?: (page: string) => void;
 }
 
 export function TeamSettings({ onNavigate }: TeamSettingsProps) {
-  const [activeTab, setActiveTab] = useState('profile');
-  const [teamName, setTeamName] = useState('Team Phoenix');
-  const [teamTag, setTeamTag] = useState('PHX');
-  const [teamDescription, setTeamDescription] = useState('Elite competitive esports team focused on CS2 and Valorant. Dominating the scene since 2023.');
+  const [activeTab, setActiveTab] = useState("profile");
+  const [teamName, setTeamName] = useState("Team Phoenix");
+  const [teamTag, setTeamTag] = useState("PHX");
+  const [teamDescription, setTeamDescription] = useState(
+    "Elite competitive esports team focused on CS2 and Valorant. Dominating the scene since 2023.",
+  );
   const [isPrivate, setIsPrivate] = useState(false);
   const [requireApproval, setRequireApproval] = useState(true);
   const [autoAcceptMMR, setAutoAcceptMMR] = useState(2000);
   const [prizeSplit, setPrizeSplit] = useState([20, 20, 20, 20, 20]); // Equal split by default
-  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteEmail, setInviteEmail] = useState("");
 
   // Mock roster data
   const roster = [
-    { id: '1', name: 'PhoenixLeader', role: 'Captain', joinDate: 'Jan 2023', matches: 156, contribution: 20, canRemove: false },
-    { id: '2', name: 'BlazeFury', role: 'Member', joinDate: 'Feb 2023', matches: 142, contribution: 20, canRemove: true },
-    { id: '3', name: 'EmberStrike', role: 'Member', joinDate: 'Mar 2023', matches: 138, contribution: 20, canRemove: true },
-    { id: '4', name: 'InfernoShot', role: 'Member', joinDate: 'Apr 2023', matches: 129, contribution: 20, canRemove: true },
-    { id: '5', name: 'PyroTactic', role: 'Member', joinDate: 'May 2023', matches: 145, contribution: 20, canRemove: true }
+    {
+      id: "1",
+      name: "PhoenixLeader",
+      role: "Captain",
+      joinDate: "Jan 2023",
+      matches: 156,
+      contribution: 20,
+      canRemove: false,
+    },
+    {
+      id: "2",
+      name: "BlazeFury",
+      role: "Member",
+      joinDate: "Feb 2023",
+      matches: 142,
+      contribution: 20,
+      canRemove: true,
+    },
+    {
+      id: "3",
+      name: "EmberStrike",
+      role: "Member",
+      joinDate: "Mar 2023",
+      matches: 138,
+      contribution: 20,
+      canRemove: true,
+    },
+    {
+      id: "4",
+      name: "InfernoShot",
+      role: "Member",
+      joinDate: "Apr 2023",
+      matches: 129,
+      contribution: 20,
+      canRemove: true,
+    },
+    {
+      id: "5",
+      name: "PyroTactic",
+      role: "Member",
+      joinDate: "May 2023",
+      matches: 145,
+      contribution: 20,
+      canRemove: true,
+    },
   ];
 
   const [pendingInvites, setPendingInvites] = useState([
-    { id: '1', email: 'newplayer@example.com', sentDate: '2h ago' },
-    { id: '2', email: 'progamer123@example.com', sentDate: '1d ago' }
+    { id: "1", email: "newplayer@example.com", sentDate: "2h ago" },
+    { id: "2", email: "progamer123@example.com", sentDate: "1d ago" },
   ]);
 
   const handleSaveProfile = () => {
-    console.log('Saving profile:', { teamName, teamTag, teamDescription });
+    console.log("Saving profile:", { teamName, teamTag, teamDescription });
     // Show success toast
   };
 
   const handleSendInvite = () => {
     if (inviteEmail) {
-      console.log('Sending invite to:', inviteEmail);
-      setPendingInvites([...pendingInvites, { 
-        id: Date.now().toString(), 
-        email: inviteEmail, 
-        sentDate: 'Just now' 
-      }]);
-      setInviteEmail('');
+      console.log("Sending invite to:", inviteEmail);
+      setPendingInvites([
+        ...pendingInvites,
+        {
+          id: Date.now().toString(),
+          email: inviteEmail,
+          sentDate: "Just now",
+        },
+      ]);
+      setInviteEmail("");
     }
   };
 
   const handleRemoveInvite = (id: string) => {
-    setPendingInvites(pendingInvites.filter(invite => invite.id !== id));
+    setPendingInvites(pendingInvites.filter((invite) => invite.id !== id));
   };
 
   const handleRemoveMember = (memberId: string) => {
-    console.log('Removing member:', memberId);
+    console.log("Removing member:", memberId);
   };
 
   const handlePromoteToCaptain = (memberId: string) => {
-    console.log('Promoting to captain:', memberId);
+    console.log("Promoting to captain:", memberId);
   };
 
   const handleDisbandTeam = () => {
-    console.log('Disbanding team');
-    onNavigate?.('hubs');
+    console.log("Disbanding team");
+    onNavigate?.("hubs");
   };
 
   return (
@@ -105,37 +166,58 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => onNavigate?.('team-page')}
+          onClick={() => onNavigate?.("team-page")}
           className="hover:bg-primary/10"
         >
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1">
           <h1 className="text-foreground">Team Settings</h1>
-          <p className="text-muted-foreground">Manage your team configuration and roster</p>
+          <p className="text-muted-foreground">
+            Manage your team configuration and roster
+          </p>
         </div>
-        <Button className="bg-primary hover:bg-primary/90" onClick={handleSaveProfile}>
+        <Button
+          className="bg-primary hover:bg-primary/90"
+          onClick={handleSaveProfile}
+        >
           <Save className="h-4 w-4 mr-2" />
           Save Changes
         </Button>
       </div>
 
       {/* Settings Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="animate-fadeInUp animate-delay-100">
-        <TabsList className="grid w-full grid-cols-4 bg-muted/50">
-          <TabsTrigger value="profile" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="animate-fadeInUp animate-delay-100"
+      >
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 bg-muted/50 h-auto">
+          <TabsTrigger
+            value="profile"
+            className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+          >
             <Settings className="h-4 w-4 mr-2" />
             Profile
           </TabsTrigger>
-          <TabsTrigger value="roster" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+          <TabsTrigger
+            value="roster"
+            className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+          >
             <Users className="h-4 w-4 mr-2" />
             Roster
           </TabsTrigger>
-          <TabsTrigger value="privacy" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+          <TabsTrigger
+            value="privacy"
+            className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+          >
             <Shield className="h-4 w-4 mr-2" />
             Privacy
           </TabsTrigger>
-          <TabsTrigger value="financial" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+          <TabsTrigger
+            value="financial"
+            className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+          >
             <DollarSign className="h-4 w-4 mr-2" />
             Financial
           </TabsTrigger>
@@ -146,7 +228,9 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
           <Card>
             <CardHeader>
               <h3 className="text-foreground">Team Identity</h3>
-              <p className="text-sm text-muted-foreground">Update your team's basic information</p>
+              <p className="text-sm text-muted-foreground">
+                Update your team's basic information
+              </p>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Team Logo */}
@@ -157,7 +241,10 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                     🔥
                   </div>
                   <div className="flex-1">
-                    <Button variant="outline" className="border-primary/30 hover:bg-primary/10">
+                    <Button
+                      variant="outline"
+                      className="border-primary/30 hover:bg-primary/10"
+                    >
                       <Upload className="h-4 w-4 mr-2" />
                       Upload New Logo
                     </Button>
@@ -177,7 +264,10 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                   <div className="h-32 rounded-lg bg-gradient-to-r from-primary/20 to-primary/5 flex items-center justify-center">
                     <ImageIcon className="h-8 w-8 text-muted-foreground" />
                   </div>
-                  <Button variant="outline" className="border-primary/30 hover:bg-primary/10">
+                  <Button
+                    variant="outline"
+                    className="border-primary/30 hover:bg-primary/10"
+                  >
                     <Upload className="h-4 w-4 mr-2" />
                     Upload Banner
                   </Button>
@@ -240,11 +330,21 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
               <div className="space-y-2">
                 <Label>Preferred Games</Label>
                 <div className="flex flex-wrap gap-2">
-                  {['CS2', 'Valorant', 'League of Legends', 'Dota 2', 'Rocket League'].map((game) => (
+                  {[
+                    "CS2",
+                    "Valorant",
+                    "League of Legends",
+                    "Dota 2",
+                    "Rocket League",
+                  ].map((game) => (
                     <Badge
                       key={game}
                       className="cursor-pointer hover:bg-primary/90 transition-colors"
-                      variant={['CS2', 'Valorant'].includes(game) ? 'default' : 'outline'}
+                      variant={
+                        ["CS2", "Valorant"].includes(game)
+                          ? "default"
+                          : "outline"
+                      }
                     >
                       {game}
                     </Badge>
@@ -261,7 +361,9 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
           <Card>
             <CardHeader>
               <h3 className="text-foreground">Invite New Members</h3>
-              <p className="text-sm text-muted-foreground">Send invitations to players</p>
+              <p className="text-sm text-muted-foreground">
+                Send invitations to players
+              </p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-2">
@@ -271,7 +373,10 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                   onChange={(e) => setInviteEmail(e.target.value)}
                   className="bg-input-background flex-1"
                 />
-                <Button className="bg-primary hover:bg-primary/90" onClick={handleSendInvite}>
+                <Button
+                  className="bg-primary hover:bg-primary/90"
+                  onClick={handleSendInvite}
+                >
                   <Mail className="h-4 w-4 mr-2" />
                   Send Invite
                 </Button>
@@ -298,15 +403,21 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
               {/* Pending Invites */}
               {pendingInvites.length > 0 && (
                 <div className="space-y-2">
-                  <Label className="text-sm">Pending Invites ({pendingInvites.length})</Label>
+                  <Label className="text-sm">
+                    Pending Invites ({pendingInvites.length})
+                  </Label>
                   {pendingInvites.map((invite) => (
                     <div
                       key={invite.id}
                       className="flex items-center justify-between p-3 rounded-lg bg-muted/30"
                     >
                       <div className="flex-1">
-                        <div className="font-medium text-foreground text-sm">{invite.email}</div>
-                        <div className="text-xs text-muted-foreground">Sent {invite.sentDate}</div>
+                        <div className="font-medium text-foreground text-sm">
+                          {invite.email}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Sent {invite.sentDate}
+                        </div>
                       </div>
                       <Button
                         variant="ghost"
@@ -326,8 +437,12 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
           {/* Current Roster */}
           <Card>
             <CardHeader>
-              <h3 className="text-foreground">Current Roster ({roster.length}/5)</h3>
-              <p className="text-sm text-muted-foreground">Manage your team members</p>
+              <h3 className="text-foreground">
+                Current Roster ({roster.length}/5)
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Manage your team members
+              </p>
             </CardHeader>
             <CardContent className="space-y-3">
               {roster.map((member) => (
@@ -344,8 +459,10 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                       </Avatar>
                       <div>
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-foreground">{member.name}</span>
-                          {member.role === 'Captain' && (
+                          <span className="font-medium text-foreground">
+                            {member.name}
+                          </span>
+                          {member.role === "Captain" && (
                             <Badge className="bg-amber-600 text-white text-xs">
                               <Crown className="h-3 w-3 mr-1" />
                               Captain
@@ -373,16 +490,21 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Transfer Team Captain Role?</AlertDialogTitle>
+                              <AlertDialogTitle>
+                                Transfer Team Captain Role?
+                              </AlertDialogTitle>
                               <AlertDialogDescription>
-                                This will transfer all captain privileges to {member.name}. You will become a regular member.
+                                This will transfer all captain privileges to{" "}
+                                {member.name}. You will become a regular member.
                                 This action cannot be undone.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Cancel</AlertDialogCancel>
                               <AlertDialogAction
-                                onClick={() => handlePromoteToCaptain(member.id)}
+                                onClick={() =>
+                                  handlePromoteToCaptain(member.id)
+                                }
                                 className="bg-amber-600 hover:bg-amber-700"
                               >
                                 Transfer Role
@@ -403,9 +525,12 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Remove Team Member?</AlertDialogTitle>
+                              <AlertDialogTitle>
+                                Remove Team Member?
+                              </AlertDialogTitle>
                               <AlertDialogDescription>
-                                Are you sure you want to remove {member.name} from the team? This action cannot be undone.
+                                Are you sure you want to remove {member.name}{" "}
+                                from the team? This action cannot be undone.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
@@ -433,7 +558,9 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
           <Card>
             <CardHeader>
               <h3 className="text-foreground">Team Visibility</h3>
-              <p className="text-sm text-muted-foreground">Control who can see and join your team</p>
+              <p className="text-sm text-muted-foreground">
+                Control who can see and join your team
+              </p>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Private Team */}
@@ -461,7 +588,10 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                     Captain must approve all join requests
                   </p>
                 </div>
-                <Switch checked={requireApproval} onCheckedChange={setRequireApproval} />
+                <Switch
+                  checked={requireApproval}
+                  onCheckedChange={setRequireApproval}
+                />
               </div>
 
               <Separator />
@@ -471,13 +601,22 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                 <div className="space-y-1">
                   <Label>Minimum MMR for Auto-Accept</Label>
                   <p className="text-sm text-muted-foreground">
-                    Players with MMR above this threshold will be automatically accepted
+                    Players with MMR above this threshold will be automatically
+                    accepted
                   </p>
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Current: {autoAcceptMMR} MMR</span>
-                    <Badge variant="outline">{autoAcceptMMR >= 2500 ? 'Elite' : autoAcceptMMR >= 2000 ? 'Advanced' : 'Intermediate'}</Badge>
+                    <span className="text-sm text-muted-foreground">
+                      Current: {autoAcceptMMR} MMR
+                    </span>
+                    <Badge variant="outline">
+                      {autoAcceptMMR >= 2500
+                        ? "Elite"
+                        : autoAcceptMMR >= 2000
+                          ? "Advanced"
+                          : "Intermediate"}
+                    </Badge>
                   </div>
                   <Slider
                     value={[autoAcceptMMR]}
@@ -534,7 +673,9 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
           <Card>
             <CardHeader>
               <h3 className="text-foreground">Prize Distribution</h3>
-              <p className="text-sm text-muted-foreground">Configure how winnings are split among team members</p>
+              <p className="text-sm text-muted-foreground">
+                Configure how winnings are split among team members
+              </p>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Prize Split Configuration */}
@@ -546,15 +687,19 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                     Active
                   </Badge>
                 </div>
-                
+
                 <Select defaultValue="equal">
                   <SelectTrigger className="bg-input-background">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="equal">Equal Split (20% each)</SelectItem>
+                    <SelectItem value="equal">
+                      Equal Split (20% each)
+                    </SelectItem>
                     <SelectItem value="custom">Custom Percentages</SelectItem>
-                    <SelectItem value="performance">Performance-Based</SelectItem>
+                    <SelectItem value="performance">
+                      Performance-Based
+                    </SelectItem>
                     <SelectItem value="captain">Captain Decides</SelectItem>
                   </SelectContent>
                 </Select>
@@ -563,9 +708,12 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                   <div className="flex items-start gap-2">
                     <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
                     <div>
-                      <div className="font-medium text-emerald-400 mb-1">Current Split: Equal Distribution</div>
+                      <div className="font-medium text-emerald-400 mb-1">
+                        Current Split: Equal Distribution
+                      </div>
                       <p className="text-sm text-muted-foreground">
-                        Each team member receives 20% of all prize winnings automatically after matches.
+                        Each team member receives 20% of all prize winnings
+                        automatically after matches.
                       </p>
                     </div>
                   </div>
@@ -585,25 +733,43 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="p-4 rounded-lg bg-muted/30 border border-border">
-                    <div className="text-sm text-muted-foreground mb-1">Balance</div>
-                    <div className="text-2xl font-bold text-emerald-400">$1,245</div>
+                    <div className="text-sm text-muted-foreground mb-1">
+                      Balance
+                    </div>
+                    <div className="text-2xl font-bold text-emerald-400">
+                      $1,245
+                    </div>
                   </div>
                   <div className="p-4 rounded-lg bg-muted/30 border border-border">
-                    <div className="text-sm text-muted-foreground mb-1">Pending</div>
-                    <div className="text-2xl font-bold text-amber-400">$850</div>
+                    <div className="text-sm text-muted-foreground mb-1">
+                      Pending
+                    </div>
+                    <div className="text-2xl font-bold text-amber-400">
+                      $850
+                    </div>
                   </div>
                   <div className="p-4 rounded-lg bg-muted/30 border border-border">
-                    <div className="text-sm text-muted-foreground mb-1">Total Earned</div>
-                    <div className="text-2xl font-bold text-foreground">$48.5k</div>
+                    <div className="text-sm text-muted-foreground mb-1">
+                      Total Earned
+                    </div>
+                    <div className="text-2xl font-bold text-foreground">
+                      $48.5k
+                    </div>
                   </div>
                 </div>
 
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1 border-primary/30 hover:bg-primary/10">
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-primary/30 hover:bg-primary/10"
+                  >
                     <DollarSign className="h-4 w-4 mr-2" />
                     Add Funds
                   </Button>
-                  <Button variant="outline" className="flex-1 border-primary/30 hover:bg-primary/10">
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-primary/30 hover:bg-primary/10"
+                  >
                     Withdraw
                   </Button>
                 </div>
@@ -614,7 +780,9 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
               {/* Auto-Deposit */}
               <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30">
                 <div className="space-y-1">
-                  <Label className="text-base">Auto-Deposit Tournament Fees</Label>
+                  <Label className="text-base">
+                    Auto-Deposit Tournament Fees
+                  </Label>
                   <p className="text-sm text-muted-foreground">
                     Automatically use team wallet for tournament entries
                   </p>
@@ -631,7 +799,9 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                 <AlertTriangle className="h-5 w-5 text-red-400" />
                 <h3 className="text-red-400">Danger Zone</h3>
               </div>
-              <p className="text-sm text-muted-foreground">Irreversible actions</p>
+              <p className="text-sm text-muted-foreground">
+                Irreversible actions
+              </p>
             </CardHeader>
             <CardContent className="space-y-4">
               <AlertDialog>
@@ -652,7 +822,9 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                     </AlertDialogTitle>
                     <AlertDialogDescription asChild>
                       <div className="space-y-3">
-                        <p>This action cannot be undone. This will permanently:</p>
+                        <p>
+                          This action cannot be undone. This will permanently:
+                        </p>
                         <ul className="list-disc list-inside space-y-1 text-sm">
                           <li>Remove all team members</li>
                           <li>Cancel all scheduled matches</li>
@@ -660,7 +832,8 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
                           <li>Distribute remaining funds to members</li>
                         </ul>
                         <p className="font-medium text-foreground">
-                          Current team wallet balance ($1,245) will be split equally among members.
+                          Current team wallet balance ($1,245) will be split
+                          equally among members.
                         </p>
                       </div>
                     </AlertDialogDescription>
@@ -679,7 +852,8 @@ export function TeamSettings({ onNavigate }: TeamSettingsProps) {
 
               <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30">
                 <p className="text-sm text-muted-foreground">
-                  Disbanding the team will permanently delete all data. Make sure to withdraw any funds first.
+                  Disbanding the team will permanently delete all data. Make
+                  sure to withdraw any funds first.
                 </p>
               </div>
             </CardContent>

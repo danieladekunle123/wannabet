@@ -15,21 +15,27 @@ import {
   MessageCircle,
   Users,
   Send,
+  Check,
+  CheckCheck,
   MoreVertical,
   Pin,
   Star,
   Hash,
   User,
+  Reply,
   ArrowLeft,
   Smile,
   Loader2,
   Image as ImageIcon,
+  X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "./AuthContext";
 import { GifPicker } from "./GifPicker";
 import { UserAvatar } from "./UserAvatar";
+import { StatusDot } from "./StatusDot";
+import { usePresence } from "../context/PresenceContext";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -37,6 +43,12 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from "./ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 interface Message {
   id: string;
@@ -44,16 +56,19 @@ interface Message {
   content: string;
   timestamp: string;
   senderId?: string;
+  receiverId?: string | null;
   replyToId?: string | null;
   messageType?: "text" | "gif" | "image" | "video";
   mediaUrl?: string | null;
+  readAt?: string | null;
+  editedAt?: string | null;
   isMe?: boolean;
 }
 
 interface Conversation {
   id: string;
   name: string;
-  type: "direct" | "group" | "hub";
+  type: "direct" | "group" | "hub" | "team";
   lastMessage: string;
   timestamp: string;
   unread: number;
@@ -61,12 +76,15 @@ interface Conversation {
   avatar?: string;
   game?: string;
   pinned?: boolean;
+  teamId?: string;
+  canManageTeam?: boolean;
 }
 
 interface MessagesProps {
   initialConversationId?: string | undefined;
   onInitialConsumed?: () => void;
   onNavigate?: (tab: string, query?: string) => void;
+  onUnreadCountChange?: (count: number) => void;
 }
 
 const THREAD_GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -75,11 +93,13 @@ export function Messages({
   initialConversationId,
   onInitialConsumed,
   onNavigate,
+  onUnreadCountChange,
 }: MessagesProps) {
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
   const GIPHY_API_KEY =
     import.meta.env.VITE_GIPHY_API_KEY || "wYChZ0CXRzFrNp3kVR2bzsAqFHeBWyh2";
   const { user, token } = useAuth();
+  const { getStatus, watchUsers } = usePresence();
   const [selectedConversation, setSelectedConversation] = useState<string>("");
   const [messageInput, setMessageInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -94,6 +114,7 @@ export function Messages({
   const [editingText, setEditingText] = useState<string>("");
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [isUpdatingTeamPhoto, setIsUpdatingTeamPhoto] = useState(false);
   const [usernamesById, setUsernamesById] = useState<Record<string, string>>(
     {},
   );
@@ -105,6 +126,8 @@ export function Messages({
   const conversationNamesRef = useRef<Record<string, string>>({});
   const userImagesRef = useRef<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const teamPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const readSyncInFlightRef = useRef<Record<string, boolean>>({});
 
   const isLikelyUserId = (value?: string) => {
     if (!value) return false;
@@ -171,10 +194,16 @@ export function Messages({
   };
 
   const resolveConversationAvatarUrl = (conversationId: string) => {
+    const conversation = conversationsState.find(
+      (c) => c.id === conversationId,
+    );
+    if (conversation?.avatar) {
+      return resolveMediaUrl(conversation.avatar);
+    }
     if (!conversationId?.startsWith("dm:")) return "";
     const otherUserId = getDmOtherUserId(conversationId);
     if (!otherUserId) return "";
-    return userImagesRef.current[otherUserId] || "";
+    return resolveMediaUrl(userImagesRef.current[otherUserId] || "");
   };
 
   const resolveSenderAvatarUrl = (
@@ -219,7 +248,10 @@ export function Messages({
       }
     }
 
-    if (fallbackLabel && !isLikelyUserId(fallbackLabel)) return fallbackLabel;
+    if (fallbackLabel && !isLikelyUserId(fallbackLabel)) {
+      if (senderId) rememberUserName(senderId, fallbackLabel);
+      return fallbackLabel;
+    }
     return senderId || fallbackLabel || "Unknown";
   };
 
@@ -268,7 +300,6 @@ export function Messages({
 
     return currentMillis - previousMillis > THREAD_GROUP_WINDOW_MS;
   };
-
 
   const getConversationIdForMessage = (message: {
     channelId?: string | null;
@@ -409,6 +440,49 @@ export function Messages({
     );
   };
 
+  const applyReadReceipt = (payload: {
+    messageIds?: string[];
+    readAt?: string;
+  }) => {
+    if (!payload?.messageIds?.length || !payload.readAt) return;
+
+    setMessagesState((prev) =>
+      prev.map((message) => {
+        if (!payload.messageIds?.includes(message.id)) return message;
+        if (!message.isMe) return message;
+        return { ...message, readAt: payload.readAt };
+      }),
+    );
+  };
+
+  const markConversationAsRead = async (conversationId: string) => {
+    const authToken = token || localStorage.getItem("token");
+    if (!authToken || !conversationId) return;
+
+    const normalizedConversationId = normalizeConversationId(conversationId);
+    if (!normalizedConversationId) return;
+    if (readSyncInFlightRef.current[normalizedConversationId]) return;
+
+    readSyncInFlightRef.current[normalizedConversationId] = true;
+    try {
+      const res = await fetch(
+        `${API_URL}/messages/${normalizedConversationId}/read`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${authToken}` },
+        },
+      );
+
+      if (!res.ok) return;
+      const payload = await res.json().catch(() => ({}));
+      applyReadReceipt(payload?.data || {});
+    } catch (error) {
+      console.error("failed marking conversation as read", error);
+    } finally {
+      readSyncInFlightRef.current[normalizedConversationId] = false;
+    }
+  };
+
   const resolveNavigationConversationId = (value: string) => {
     if (!value) return null;
 
@@ -444,7 +518,7 @@ export function Messages({
     }
 
     const payload = await res.json();
-    const conversation = payload?.data;
+    const conversation = payload?.data || payload?.conversation || null;
     if (!conversation) return null;
 
     const normalizedId = normalizeConversationId(
@@ -481,7 +555,7 @@ export function Messages({
           conversation.createdAt ||
           "",
         unread: 0,
-        avatar: otherImage || undefined,
+        avatar: otherImage ? resolveMediaUrl(otherImage) : undefined,
       };
 
       if (idx === -1) {
@@ -552,9 +626,10 @@ export function Messages({
         const mapped: Message = {
           id: msg.id,
           senderId: msg.senderId,
+          receiverId: msg.receiverId || null,
           sender: resolveSenderLabel(
             msg.senderId,
-            msg.sender,
+            msg.sender?.username ?? msg.sender,
             currentConversation,
           ),
           content: msg.content || msg.text || msg.message?.content || "",
@@ -562,6 +637,8 @@ export function Messages({
           replyToId: msg.replyToId || null,
           messageType: msg.messageType || "text",
           mediaUrl: msg.mediaUrl || null,
+          readAt: msg.readAt || null,
+          editedAt: msg.editedAt || null,
           isMe: msg.senderId === user?.id,
         };
         setMessagesState((prev) => {
@@ -605,17 +682,33 @@ export function Messages({
             msg.senderProfileImageUrl || msg.senderAvatarUrl,
           );
         }
+
+        if (!mapped.isMe && currentConversation) {
+          markConversationAsRead(currentConversation);
+        }
       } catch (e) {
         console.log("failed mapping incoming message", e, msg);
       }
     });
     s.on("message:update", (msg: any) => {
       setMessagesState((prev) =>
-        prev.map((m) => (m.id === msg.id ? { ...m, content: msg.content } : m)),
+        prev.map((m) =>
+          m.id === msg.id
+            ? {
+                ...m,
+                content: msg.content,
+                editedAt:
+                  msg.editedAt || m.editedAt || new Date().toISOString(),
+              }
+            : m,
+        ),
       );
     });
     s.on("message:delete", ({ id }: any) => {
       setMessagesState((prev) => prev.filter((m) => m.id !== id));
+    });
+    s.on("message:read", (payload: any) => {
+      applyReadReceipt(payload || {});
     });
 
     return () => {
@@ -634,6 +727,15 @@ export function Messages({
   const [conversationsState, setConversationsState] = useState<Conversation[]>(
     [],
   );
+
+  useEffect(() => {
+    if (!onUnreadCountChange) return;
+    const unreadCount = conversationsState.reduce(
+      (sum, conversation) => sum + (conversation.unread || 0),
+      0,
+    );
+    onUnreadCountChange(unreadCount);
+  }, [conversationsState, onUnreadCountChange]);
 
   useEffect(() => {
     const map: Record<string, string> = {};
@@ -698,15 +800,22 @@ export function Messages({
               type:
                 c.type === "hub"
                   ? "hub"
-                  : c.type === "group" || c.type === "channel"
-                    ? "group"
-                    : "direct",
+                  : c.type === "team"
+                    ? "team"
+                    : c.type === "group" || c.type === "channel"
+                      ? "group"
+                      : "direct",
               lastMessage: c.lastMessage ?? c.last_message ?? c.preview ?? "",
               timestamp: c.updatedAt ?? c.lastMessageAt ?? c.createdAt ?? "",
               unread: c.unread ?? 0,
               online: c.online ?? false,
-              avatar: c.profileImageUrl ?? c.avatarUrl ?? undefined,
+              avatar:
+                c.profileImageUrl || c.avatarUrl
+                  ? resolveMediaUrl(c.profileImageUrl ?? c.avatarUrl)
+                  : undefined,
               game: c.game,
+              teamId: c.teamId,
+              canManageTeam: !!c.canManageTeam,
               pinned: c.pinned ?? false,
             };
           })
@@ -762,6 +871,8 @@ export function Messages({
     switch (type) {
       case "direct":
         return <User className="h-4 w-4" />;
+      case "team":
+        return <Users className="h-4 w-4" />;
       case "group":
         return <Users className="h-4 w-4" />;
       case "hub":
@@ -784,6 +895,38 @@ export function Messages({
         unread: 0,
       })
     : null;
+
+  const canEditActiveTeamPhoto =
+    !!activeConversation &&
+    activeConversation.type === "team" &&
+    !!activeConversation.teamId &&
+    !!activeConversation.canManageTeam;
+
+  const replyingToMessage = replyingToId
+    ? messagesState.find((message) => message.id === replyingToId)
+    : null;
+
+  const getReplyPreviewText = (message: Message | null) => {
+    if (!message) return "Original message";
+    if (message.content?.trim()) return message.content;
+    if (message.messageType === "gif") return "GIF";
+    if (message.messageType === "image") return "Image";
+    if (message.messageType === "video") return "Video";
+    return "Message";
+  };
+
+  const getReplyIndicatorText = (replyToId?: string | null) => {
+    if (!replyToId) return "Original message";
+    const originalMessage = messagesState.find(
+      (message) => message.id === replyToId,
+    );
+    if (!originalMessage) return "Original message";
+    if (originalMessage.content?.trim()) return originalMessage.content;
+    if (originalMessage.messageType === "gif") return "GIF";
+    if (originalMessage.messageType === "image") return "Image";
+    if (originalMessage.messageType === "video") return "Video";
+    return "Message";
+  };
 
   const sendMessage = async ({
     content = "",
@@ -835,17 +978,27 @@ export function Messages({
     if (replyingToId && !replyingToId.startsWith("temp-"))
       body.replyToId = replyingToId;
 
-    await fetch(`${API_URL}/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${authToken}`,
-      },
-      body: JSON.stringify(body),
-    }).catch((err) => {
+    try {
+      const res = await fetch(`${API_URL}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload?.message || "failed to send message");
+      }
+
+      setReplyingToId(null);
+    } catch (err) {
       console.error("send message error", err);
       setMessagesState((prev) => prev.filter((m) => m.id !== tempId));
-    });
+      return;
+    }
 
     if (messageType === "text") setMessageInput("");
   };
@@ -897,6 +1050,67 @@ export function Messages({
     event.target.value = "";
   };
 
+  const handleTeamPhotoUpload = async (file: File) => {
+    const authToken = token || localStorage.getItem("token");
+    if (!authToken || !activeConversation) return;
+    if (activeConversation.type !== "team") return;
+    if (!activeConversation.teamId || !activeConversation.canManageTeam) return;
+
+    setIsUpdatingTeamPhoto(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const res = await fetch(
+        `${API_URL}/teams/${encodeURIComponent(activeConversation.teamId)}/profile-image/upload`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${authToken}` },
+          body: form,
+        },
+      );
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload?.message || "Failed to update group photo");
+      }
+
+      const payload = await res.json().catch(() => ({}));
+      const profileImageUrl =
+        payload?.team?.profileImageUrl || payload?.profileImageUrl || "";
+      const resolvedUrl = resolveMediaUrl(profileImageUrl || "");
+      if (!resolvedUrl) return;
+
+      setConversationsState((prev) =>
+        prev.map((conversation) =>
+          conversation.id === activeConversation.id
+            ? { ...conversation, avatar: resolvedUrl }
+            : conversation,
+        ),
+      );
+    } catch (error: any) {
+      alert(error?.message || "Failed to update group photo");
+    } finally {
+      setIsUpdatingTeamPhoto(false);
+    }
+  };
+
+  const handleTeamPhotoFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await handleTeamPhotoUpload(file);
+    event.target.value = "";
+  };
+
+  const openTeamPhotoPicker = () => {
+    if (!activeConversation) return;
+    if (activeConversation.type !== "team") return;
+    if (!activeConversation.teamId || !activeConversation.canManageTeam) return;
+    teamPhotoInputRef.current?.click();
+  };
+
   const startReply = (id: string) => {
     setReplyingToId(id);
   };
@@ -935,7 +1149,16 @@ export function Messages({
         const data = await res.json();
         setMessagesState((prev) =>
           prev.map((m) =>
-            m.id === editingId ? { ...m, content: data.data.content } : m,
+            m.id === editingId
+              ? {
+                  ...m,
+                  content: data.data.content,
+                  editedAt:
+                    data.data.editedAt ||
+                    m.editedAt ||
+                    new Date().toISOString(),
+                }
+              : m,
           ),
         );
       }
@@ -992,6 +1215,7 @@ export function Messages({
     }
 
     setSelectedConversation(normalizedConversationId);
+    setReplyingToId(null);
     prevConversationRef.current = normalizedConversationId;
     setShowMobileChat(true);
 
@@ -1021,6 +1245,7 @@ export function Messages({
         const mapped = (data.data || []).map((m: any) => ({
           id: m.id,
           senderId: m.senderId,
+          receiverId: m.receiverId || null,
           sender: resolveSenderLabel(
             m.senderId,
             m.sender?.username,
@@ -1031,9 +1256,12 @@ export function Messages({
           replyToId: m.replyToId || null,
           messageType: m.messageType || "text",
           mediaUrl: m.mediaUrl || null,
+          readAt: m.readAt || null,
+          editedAt: m.editedAt || null,
           isMe: m.senderId === user?.id,
         }));
         setMessagesState(dedupeMessagesById(mapped));
+        await markConversationAsRead(normalizedConversationId);
       } else {
         setMessagesState([]);
       }
@@ -1122,6 +1350,13 @@ export function Messages({
         accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime,.mov"
         className="hidden"
         onChange={handleFileChange}
+      />
+      <input
+        ref={teamPhotoInputRef}
+        type="file"
+        accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={handleTeamPhotoFileChange}
       />
 
       {showGifPicker && (
@@ -1273,16 +1508,37 @@ export function Messages({
                                     }
                                   />
                                 </motion.div>
-                                {conversation.online && (
-                                  <motion.div
-                                    className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-background shadow-lg"
-                                    animate={{ scale: [1, 1.2, 1] }}
-                                    transition={{
-                                      duration: 2,
-                                      repeat: Infinity,
-                                    }}
-                                  />
-                                )}
+                                {conversation.type === "direct" &&
+                                  (() => {
+                                    const otherId = getDmOtherUserId(
+                                      conversation.id,
+                                    );
+                                    const st = otherId
+                                      ? getStatus(otherId)
+                                      : "offline";
+                                    const dotColor =
+                                      st === "online"
+                                        ? "bg-emerald-400"
+                                        : st === "idle"
+                                          ? "bg-yellow-400"
+                                          : st === "dnd"
+                                            ? "bg-red-500"
+                                            : "bg-gray-400";
+                                    return st !== "offline" ? (
+                                      <motion.div
+                                        className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 ${dotColor} rounded-full border-2 border-background shadow-lg`}
+                                        animate={
+                                          st === "online"
+                                            ? { scale: [1, 1.2, 1] }
+                                            : {}
+                                        }
+                                        transition={{
+                                          duration: 2,
+                                          repeat: Infinity,
+                                        }}
+                                      />
+                                    ) : null;
+                                  })()}
                               </div>
 
                               <div className="flex-1 min-w-0 text-left">
@@ -1410,17 +1666,37 @@ export function Messages({
                             <h3 className="font-semibold text-foreground truncate">
                               {activeConversation.name}
                             </h3>
-                            {activeConversation.online && (
-                              <motion.div
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
-                                transition={{ type: "spring", stiffness: 300 }}
-                              >
-                                <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs backdrop-blur-sm">
-                                  Online
-                                </Badge>
-                              </motion.div>
-                            )}
+                            {activeConversation.type === "direct" &&
+                              (() => {
+                                const otherId = getDmOtherUserId(
+                                  activeConversation.id,
+                                );
+                                const st = otherId
+                                  ? getStatus(otherId)
+                                  : "offline";
+                                const stLabel =
+                                  st === "online"
+                                    ? "Online"
+                                    : st === "idle"
+                                      ? "Idle"
+                                      : st === "dnd"
+                                        ? "Do Not Disturb"
+                                        : null;
+                                return stLabel ? (
+                                  <motion.div
+                                    initial={{ scale: 0 }}
+                                    animate={{ scale: 1 }}
+                                    transition={{
+                                      type: "spring",
+                                      stiffness: 300,
+                                    }}
+                                  >
+                                    <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs backdrop-blur-sm">
+                                      {stLabel}
+                                    </Badge>
+                                  </motion.div>
+                                ) : null;
+                              })()}
                           </div>
                           {activeConversation.game && (
                             <motion.p
@@ -1437,18 +1713,38 @@ export function Messages({
 
                     {activeConversation.type !== "direct" && (
                       <div className="flex items-center space-x-1">
-                        <motion.div
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                        >
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
-                          >
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </motion.div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <motion.div
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                            >
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </motion.div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" sideOffset={8}>
+                            {canEditActiveTeamPhoto ? (
+                              <DropdownMenuItem
+                                onSelect={openTeamPhotoPicker}
+                                disabled={isUpdatingTeamPhoto}
+                              >
+                                {isUpdatingTeamPhoto
+                                  ? "Uploading..."
+                                  : "Edit Group Photo"}
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem disabled>
+                                Only team owner can edit group photo
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     )}
                   </div>
@@ -1548,11 +1844,13 @@ export function Messages({
                                     }`}
                                   >
                                     {message.replyToId && (
-                                      <div className="mb-2 text-xs text-muted-foreground/80 italic rounded p-2 bg-muted/20">
-                                        In reply to:{" "}
-                                        {messagesState.find(
-                                          (x) => x.id === message.replyToId,
-                                        )?.content || "..."}
+                                      <div className="mb-2 flex items-center gap-1.5 rounded-md border border-current/25 bg-black/10 px-2 py-1 text-[11px] opacity-90">
+                                        <Reply className="h-3 w-3 shrink-0" />
+                                        <span className="truncate">
+                                          {getReplyIndicatorText(
+                                            message.replyToId,
+                                          )}
+                                        </span>
                                       </div>
                                     )}
 
@@ -1634,6 +1932,40 @@ export function Messages({
                                       </>
                                     )}
                                   </motion.div>
+                                  {editingId !== message.id &&
+                                    (message.editedAt ||
+                                      (message.isMe &&
+                                        activeConversation?.type ===
+                                          "direct")) && (
+                                      <div
+                                        className={`mt-1 flex items-center gap-2 text-[10px] leading-none text-muted-foreground ${
+                                          message.isMe
+                                            ? "justify-end"
+                                            : "justify-start"
+                                        }`}
+                                      >
+                                        {message.editedAt && (
+                                          <span className="italic">Edited</span>
+                                        )}
+                                        {message.isMe &&
+                                          activeConversation?.type ===
+                                            "direct" && (
+                                            <span className="flex items-center gap-1">
+                                              {message.readAt ? (
+                                                <>
+                                                  <CheckCheck className="h-2.5 w-2.5" />
+                                                  <span>Read</span>
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <Check className="h-2.5 w-2.5" />
+                                                  <span>Sent</span>
+                                                </>
+                                              )}
+                                            </span>
+                                          )}
+                                      </div>
+                                    )}
                                 </div>
                               </motion.div>
                             </ContextMenuTrigger>
@@ -1704,6 +2036,26 @@ export function Messages({
 
                 {/* Message Input - Mobile with Enhanced Styling */}
                 <div className="p-4 border-t border-border/50 flex-shrink-0 bg-background/80 backdrop-blur-xl">
+                  {replyingToId && (
+                    <div className="mb-2 flex items-start justify-between gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-medium text-primary">
+                          Replying to {replyingToMessage?.sender || "message"}
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {getReplyPreviewText(replyingToMessage ?? null)}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={cancelReply}
+                        className="h-6 w-6 shrink-0"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
                   <div className="flex items-center space-x-2">
                     <motion.div
                       whileHover={{ scale: 1.1 }}
@@ -1748,20 +2100,6 @@ export function Messages({
                         }
                         className="bg-muted/30 backdrop-blur-sm border-border/50 focus:border-primary/50 focus:bg-muted/50 transition-all duration-300 focus:shadow-lg focus:shadow-primary/5 pr-10"
                       />
-                      {replyingToId && (
-                        <div className="text-xs text-muted-foreground mt-1 flex items-center justify-between">
-                          Replying to:{" "}
-                          {messagesState.find((x) => x.id === replyingToId)
-                            ?.content || "..."}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={cancelReply}
-                          >
-                            x
-                          </Button>
-                        </div>
-                      )}
                     </div>
 
                     <motion.div
@@ -1954,13 +2292,37 @@ export function Messages({
                                   }
                                 />
                               </motion.div>
-                              {conversation.online && (
-                                <motion.div
-                                  className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-background shadow-lg"
-                                  animate={{ scale: [1, 1.2, 1] }}
-                                  transition={{ duration: 2, repeat: Infinity }}
-                                />
-                              )}
+                              {conversation.type === "direct" &&
+                                (() => {
+                                  const otherId = getDmOtherUserId(
+                                    conversation.id,
+                                  );
+                                  const st = otherId
+                                    ? getStatus(otherId)
+                                    : "offline";
+                                  const dotColor =
+                                    st === "online"
+                                      ? "bg-emerald-400"
+                                      : st === "idle"
+                                        ? "bg-yellow-400"
+                                        : st === "dnd"
+                                          ? "bg-red-500"
+                                          : "bg-gray-400";
+                                  return st !== "offline" ? (
+                                    <motion.div
+                                      className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 ${dotColor} rounded-full border-2 border-background shadow-lg`}
+                                      animate={
+                                        st === "online"
+                                          ? { scale: [1, 1.2, 1] }
+                                          : {}
+                                      }
+                                      transition={{
+                                        duration: 2,
+                                        repeat: Infinity,
+                                      }}
+                                    />
+                                  ) : null;
+                                })()}
                             </div>
 
                             <div className="flex-1 min-w-0 text-left">
@@ -2071,17 +2433,37 @@ export function Messages({
                             <h3 className="font-semibold text-foreground truncate">
                               {activeConversation.name}
                             </h3>
-                            {activeConversation.online && (
-                              <motion.div
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
-                                transition={{ type: "spring", stiffness: 300 }}
-                              >
-                                <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs backdrop-blur-sm">
-                                  Online
-                                </Badge>
-                              </motion.div>
-                            )}
+                            {activeConversation.type === "direct" &&
+                              (() => {
+                                const otherId = getDmOtherUserId(
+                                  activeConversation.id,
+                                );
+                                const st = otherId
+                                  ? getStatus(otherId)
+                                  : "offline";
+                                const stLabel =
+                                  st === "online"
+                                    ? "Online"
+                                    : st === "idle"
+                                      ? "Idle"
+                                      : st === "dnd"
+                                        ? "Do Not Disturb"
+                                        : null;
+                                return stLabel ? (
+                                  <motion.div
+                                    initial={{ scale: 0 }}
+                                    animate={{ scale: 1 }}
+                                    transition={{
+                                      type: "spring",
+                                      stiffness: 300,
+                                    }}
+                                  >
+                                    <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs backdrop-blur-sm">
+                                      {stLabel}
+                                    </Badge>
+                                  </motion.div>
+                                ) : null;
+                              })()}
                           </div>
                           {activeConversation.game && (
                             <motion.p
@@ -2097,18 +2479,38 @@ export function Messages({
 
                       {activeConversation.type !== "direct" && (
                         <div className="flex items-center space-x-1">
-                          <motion.div
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                          >
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
-                            >
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </motion.div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <motion.div
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                              >
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="hover:bg-muted/50 hover:text-primary transition-all duration-300"
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </motion.div>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" sideOffset={8}>
+                              {canEditActiveTeamPhoto ? (
+                                <DropdownMenuItem
+                                  onSelect={openTeamPhotoPicker}
+                                  disabled={isUpdatingTeamPhoto}
+                                >
+                                  {isUpdatingTeamPhoto
+                                    ? "Uploading..."
+                                    : "Edit Group Photo"}
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem disabled>
+                                  Only team owner can edit group photo
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       )}
                     </div>
@@ -2162,8 +2564,8 @@ export function Messages({
                                             messagesState[index - 1],
                                           ) &&
                                           (message.senderId || "") ===
-                                            (messagesState[index - 1]?.senderId ||
-                                              "")
+                                            (messagesState[index - 1]
+                                              ?.senderId || "")
                                         ? "mt-0.5"
                                         : "mt-1.5"
                                   }`}
@@ -2207,6 +2609,16 @@ export function Messages({
                                           : "mr-auto bg-muted/70 text-foreground shadow-md"
                                       }`}
                                     >
+                                      {message.replyToId && (
+                                        <div className="mb-2 flex items-center gap-1.5 rounded-md border border-current/25 bg-black/10 px-2 py-1 text-[11px] opacity-90">
+                                          <Reply className="h-3 w-3 shrink-0" />
+                                          <span className="truncate">
+                                            {getReplyIndicatorText(
+                                              message.replyToId,
+                                            )}
+                                          </span>
+                                        </div>
+                                      )}
                                       {editingId === message.id ? (
                                         <div>
                                           <Input
@@ -2273,7 +2685,8 @@ export function Messages({
                                             <p
                                               className={`text-sm leading-relaxed ${
                                                 message.messageType &&
-                                                message.messageType !== "text" &&
+                                                message.messageType !==
+                                                  "text" &&
                                                 message.mediaUrl
                                                   ? "mt-2"
                                                   : "mt-0"
@@ -2285,6 +2698,42 @@ export function Messages({
                                         </>
                                       )}
                                     </motion.div>
+                                    {editingId !== message.id &&
+                                      (message.editedAt ||
+                                        (message.isMe &&
+                                          activeConversation?.type ===
+                                            "direct")) && (
+                                        <div
+                                          className={`mt-1 flex items-center gap-2 text-[10px] leading-none text-muted-foreground ${
+                                            message.isMe
+                                              ? "justify-end"
+                                              : "justify-start"
+                                          }`}
+                                        >
+                                          {message.editedAt && (
+                                            <span className="italic">
+                                              Edited
+                                            </span>
+                                          )}
+                                          {message.isMe &&
+                                            activeConversation?.type ===
+                                              "direct" && (
+                                              <span className="flex items-center gap-1">
+                                                {message.readAt ? (
+                                                  <>
+                                                    <CheckCheck className="h-2.5 w-2.5" />
+                                                    <span>Read</span>
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <Check className="h-2.5 w-2.5" />
+                                                    <span>Sent</span>
+                                                  </>
+                                                )}
+                                              </span>
+                                            )}
+                                        </div>
+                                      )}
                                   </div>
                                 </motion.div>
                               </ContextMenuTrigger>
@@ -2355,6 +2804,26 @@ export function Messages({
 
                   {/* Message Input - Desktop with Enhanced Styling */}
                   <div className="p-4 border-t border-border/50 flex-shrink-0 bg-background/80 backdrop-blur-xl">
+                    {replyingToId && (
+                      <div className="max-w-4xl mx-auto mb-2 flex items-start justify-between gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-medium text-primary">
+                            Replying to {replyingToMessage?.sender || "message"}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {getReplyPreviewText(replyingToMessage ?? null)}
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={cancelReply}
+                          className="h-6 w-6 shrink-0"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
                     <div className="max-w-4xl mx-auto flex items-center space-x-2">
                       <motion.div
                         whileHover={{ scale: 1.1 }}

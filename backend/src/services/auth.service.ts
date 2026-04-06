@@ -2,11 +2,13 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
 import { env } from "../lib/env";
+import { getUserRegion } from "./ipinfoService";
 
 export async function registerUser(input: {
   email: string;
   username: string;
   password: string;
+  ip?: string | null;
 }) {
   const existingEmail = await prisma.user.findUnique({
     where: { email: input.email },
@@ -19,8 +21,13 @@ export async function registerUser(input: {
     throw err;
   }
 
-  const existingUsername = await prisma.user.findUnique({
-    where: { username: input.username },
+  const existingUsername = await prisma.user.findFirst({
+    where: {
+      username: {
+        equals: input.username,
+        mode: "insensitive",
+      },
+    },
     select: { id: true },
   });
 
@@ -31,6 +38,19 @@ export async function registerUser(input: {
   }
 
   const passwordHash = await bcrypt.hash(input.password, 12);
+
+  let detectedCountry: string | null = null;
+  let detectedRegion: string | null = null;
+  let detectedContinent: string | null = null;
+
+  try {
+    const detection = await getUserRegion(input.ip);
+    detectedCountry = detection.country;
+    detectedRegion = detection.region || detection.matchmakingRegion;
+    detectedContinent = detection.continent;
+  } catch {
+    // Region detection should not block signup.
+  }
 
   const user = await prisma.user.create({
     data: {
@@ -46,10 +66,12 @@ export async function registerUser(input: {
         create: {
           displayName: input.username,
           bio: "",
-          country: null,
+          country: detectedCountry,
+          region: detectedRegion,
+          continent: detectedContinent,
           level: 1,
           trustScore: 100,
-        },
+        } as any,
       },
     },
     select: {

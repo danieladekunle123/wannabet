@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Message"
+ADD COLUMN IF NOT EXISTS "readAt" TIMESTAMP(3);

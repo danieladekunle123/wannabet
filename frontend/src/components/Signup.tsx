@@ -411,15 +411,19 @@ export function Signup({ onNavigate, onSwitchToLogin }: SignupProps) {
                     >
                       I agree to the{" "}
                       <Button
+                        type="button"
                         variant="link"
                         className="text-primary hover:text-primary/80 p-0 text-sm h-auto"
+                        onClick={() => onNavigate("terms-of-service")}
                       >
                         Terms of Service
                       </Button>{" "}
                       and{" "}
                       <Button
+                        type="button"
                         variant="link"
                         className="text-primary hover:text-primary/80 p-0 text-sm h-auto"
+                        onClick={() => onNavigate("privacy-policy")}
                       >
                         Privacy Policy
                       </Button>
@@ -488,7 +492,7 @@ export function Signup({ onNavigate, onSwitchToLogin }: SignupProps) {
       </div>
 
       {/* Footer */}
-      <Footer />
+      <Footer onNavigate={onNavigate} />
     </div>
   );
 }

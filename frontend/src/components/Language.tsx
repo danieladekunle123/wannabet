@@ -1,48 +1,185 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Badge } from './ui/badge';
-import { Input } from './ui/input';
-import { Separator } from './ui/separator';
-import { Globe, Check, Search, Clock, ArrowLeft } from 'lucide-react';
+import React, { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { Input } from "./ui/input";
+import { Separator } from "./ui/separator";
+import { Globe, Check, Search, Clock, ArrowLeft } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface LanguageProps {
   onNavigate?: (tab: string) => void;
 }
 
 export function Language({ onNavigate }: LanguageProps) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState('en');
-
-  const languages = [
-    { code: 'en', name: 'English', nativeName: 'English', region: 'US', supported: true, popular: true },
-    { code: 'es', name: 'Spanish', nativeName: 'Español', region: 'ES', supported: true, popular: true },
-    { code: 'fr', name: 'French', nativeName: 'Français', region: 'FR', supported: true, popular: true },
-    { code: 'de', name: 'German', nativeName: 'Deutsch', region: 'DE', supported: true, popular: true },
-    { code: 'pt', name: 'Portuguese', nativeName: 'Português', region: 'BR', supported: true, popular: true },
-    { code: 'ru', name: 'Russian', nativeName: 'Русский', region: 'RU', supported: true, popular: true },
-    { code: 'ja', name: 'Japanese', nativeName: '日本語', region: 'JP', supported: true, popular: false },
-    { code: 'ko', name: 'Korean', nativeName: '한국어', region: 'KR', supported: true, popular: false },
-    { code: 'zh', name: 'Chinese (Simplified)', nativeName: '简体中文', region: 'CN', supported: true, popular: false },
-    { code: 'zh-TW', name: 'Chinese (Traditional)', nativeName: '繁體中文', region: 'TW', supported: true, popular: false },
-    { code: 'it', name: 'Italian', nativeName: 'Italiano', region: 'IT', supported: true, popular: false },
-    { code: 'nl', name: 'Dutch', nativeName: 'Nederlands', region: 'NL', supported: true, popular: false },
-    { code: 'pl', name: 'Polish', nativeName: 'Polski', region: 'PL', supported: true, popular: false },
-    { code: 'tr', name: 'Turkish', nativeName: 'Türkçe', region: 'TR', supported: true, popular: false },
-    { code: 'ar', name: 'Arabic', nativeName: 'العربية', region: 'SA', supported: false, popular: false },
-    { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी', region: 'IN', supported: false, popular: false },
-  ];
-
-  const recentlyUsed = languages.filter(lang => ['en', 'es', 'fr'].includes(lang.code));
-
-  const filteredLanguages = languages.filter(lang =>
-    lang.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    lang.nativeName.toLowerCase().includes(searchQuery.toLowerCase())
+  const { i18n } = useTranslation();
+  const supportedCodes = new Set(["en", "fr", "es"]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedLanguage, setSelectedLanguage] = useState(
+    i18n.resolvedLanguage?.split("-")[0] || "en",
   );
 
-  const popularLanguages = filteredLanguages.filter(lang => lang.popular && lang.supported);
-  const otherLanguages = filteredLanguages.filter(lang => !lang.popular && lang.supported);
-  const comingSoon = filteredLanguages.filter(lang => !lang.supported);
+  const languages = [
+    {
+      code: "en",
+      name: "English",
+      nativeName: "English",
+      region: "US",
+      supported: supportedCodes.has("en"),
+      popular: true,
+    },
+    {
+      code: "es",
+      name: "Spanish",
+      nativeName: "Español",
+      region: "ES",
+      supported: supportedCodes.has("es"),
+      popular: true,
+    },
+    {
+      code: "fr",
+      name: "French",
+      nativeName: "Français",
+      region: "FR",
+      supported: supportedCodes.has("fr"),
+      popular: true,
+    },
+    {
+      code: "de",
+      name: "German",
+      nativeName: "Deutsch",
+      region: "DE",
+      supported: supportedCodes.has("de"),
+      popular: true,
+    },
+    {
+      code: "pt",
+      name: "Portuguese",
+      nativeName: "Português",
+      region: "BR",
+      supported: supportedCodes.has("pt"),
+      popular: true,
+    },
+    {
+      code: "ru",
+      name: "Russian",
+      nativeName: "Русский",
+      region: "RU",
+      supported: supportedCodes.has("ru"),
+      popular: true,
+    },
+    {
+      code: "ja",
+      name: "Japanese",
+      nativeName: "日本語",
+      region: "JP",
+      supported: supportedCodes.has("ja"),
+      popular: false,
+    },
+    {
+      code: "ko",
+      name: "Korean",
+      nativeName: "한국어",
+      region: "KR",
+      supported: supportedCodes.has("ko"),
+      popular: false,
+    },
+    {
+      code: "zh",
+      name: "Chinese (Simplified)",
+      nativeName: "简体中文",
+      region: "CN",
+      supported: supportedCodes.has("zh"),
+      popular: false,
+    },
+    {
+      code: "zh-TW",
+      name: "Chinese (Traditional)",
+      nativeName: "繁體中文",
+      region: "TW",
+      supported: supportedCodes.has("zh-TW"),
+      popular: false,
+    },
+    {
+      code: "it",
+      name: "Italian",
+      nativeName: "Italiano",
+      region: "IT",
+      supported: supportedCodes.has("it"),
+      popular: false,
+    },
+    {
+      code: "nl",
+      name: "Dutch",
+      nativeName: "Nederlands",
+      region: "NL",
+      supported: supportedCodes.has("nl"),
+      popular: false,
+    },
+    {
+      code: "pl",
+      name: "Polish",
+      nativeName: "Polski",
+      region: "PL",
+      supported: supportedCodes.has("pl"),
+      popular: false,
+    },
+    {
+      code: "tr",
+      name: "Turkish",
+      nativeName: "Türkçe",
+      region: "TR",
+      supported: supportedCodes.has("tr"),
+      popular: false,
+    },
+    {
+      code: "ar",
+      name: "Arabic",
+      nativeName: "العربية",
+      region: "SA",
+      supported: false,
+      popular: false,
+    },
+    {
+      code: "hi",
+      name: "Hindi",
+      nativeName: "हिन्दी",
+      region: "IN",
+      supported: false,
+      popular: false,
+    },
+  ];
+
+  const activeCode =
+    i18n.resolvedLanguage?.split("-")[0] ||
+    i18n.language?.split("-")[0] ||
+    "en";
+  const currentLanguage =
+    languages.find((lang) => lang.code === activeCode) || languages[0];
+
+  const recentlyUsed = languages.filter((lang) =>
+    ["en", "es", "fr"].includes(lang.code),
+  );
+
+  const filteredLanguages = languages.filter(
+    (lang) =>
+      lang.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      lang.nativeName.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+
+  const popularLanguages = filteredLanguages.filter(
+    (lang) => lang.popular && lang.supported,
+  );
+  const otherLanguages = filteredLanguages.filter(
+    (lang) => !lang.popular && lang.supported,
+  );
+  const comingSoon = filteredLanguages.filter((lang) => !lang.supported);
 
   return (
     <div className="space-y-6 animate-fadeInUp">
@@ -51,7 +188,7 @@ export function Language({ onNavigate }: LanguageProps) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => onNavigate?.('settings')}
+          onClick={() => onNavigate?.("settings")}
           className="hover:bg-primary/10 hover:text-primary"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -73,16 +210,17 @@ export function Language({ onNavigate }: LanguageProps) {
                 <Globe className="h-5 w-5 mr-2 text-primary" />
                 Current Language
               </CardTitle>
-              <CardDescription>English (US)</CardDescription>
+              <CardDescription>
+                {currentLanguage?.nativeName || "English"}
+              </CardDescription>
             </div>
-            <Badge className="bg-primary text-primary-foreground">
-              Active
-            </Badge>
+            <Badge className="bg-primary text-primary-foreground">Active</Badge>
           </div>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            All interface text, notifications, and communications will be displayed in English.
+            All interface text, notifications, and communications will be
+            displayed in English.
           </p>
         </CardContent>
       </Card>
@@ -120,10 +258,16 @@ export function Language({ onNavigate }: LanguageProps) {
                   className="flex items-center justify-between p-3 border border-border rounded-lg hover:border-primary/50 hover:bg-muted/50 transition-all text-left"
                 >
                   <div className="flex items-center space-x-3">
-                    <span className="text-2xl">{getFlagEmoji(language.region)}</span>
+                    <span className="text-2xl">
+                      {getFlagEmoji(language.region)}
+                    </span>
                     <div>
-                      <p className="font-medium text-foreground">{language.name}</p>
-                      <p className="text-sm text-muted-foreground">{language.nativeName}</p>
+                      <p className="font-medium text-foreground">
+                        {language.name}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {language.nativeName}
+                      </p>
                     </div>
                   </div>
                   {selectedLanguage === language.code && (
@@ -155,10 +299,16 @@ export function Language({ onNavigate }: LanguageProps) {
                   style={{ animationDelay: `${index * 0.05}s` }}
                 >
                   <div className="flex items-center space-x-3">
-                    <span className="text-2xl">{getFlagEmoji(language.region)}</span>
+                    <span className="text-2xl">
+                      {getFlagEmoji(language.region)}
+                    </span>
                     <div>
-                      <p className="font-medium text-foreground">{language.name}</p>
-                      <p className="text-sm text-muted-foreground">{language.nativeName}</p>
+                      <p className="font-medium text-foreground">
+                        {language.name}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {language.nativeName}
+                      </p>
                     </div>
                   </div>
                   {selectedLanguage === language.code && (
@@ -187,10 +337,16 @@ export function Language({ onNavigate }: LanguageProps) {
                   style={{ animationDelay: `${index * 0.05}s` }}
                 >
                   <div className="flex items-center space-x-3">
-                    <span className="text-2xl">{getFlagEmoji(language.region)}</span>
+                    <span className="text-2xl">
+                      {getFlagEmoji(language.region)}
+                    </span>
                     <div>
-                      <p className="font-medium text-foreground">{language.name}</p>
-                      <p className="text-sm text-muted-foreground">{language.nativeName}</p>
+                      <p className="font-medium text-foreground">
+                        {language.name}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {language.nativeName}
+                      </p>
                     </div>
                   </div>
                   {selectedLanguage === language.code && (
@@ -209,7 +365,9 @@ export function Language({ onNavigate }: LanguageProps) {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Coming Soon</CardTitle>
-              <Badge className="bg-muted text-muted-foreground">In Development</Badge>
+              <Badge className="bg-muted text-muted-foreground">
+                In Development
+              </Badge>
             </div>
             <CardDescription>
               These languages are being translated and will be available soon
@@ -224,10 +382,16 @@ export function Language({ onNavigate }: LanguageProps) {
                   style={{ animationDelay: `${index * 0.05}s` }}
                 >
                   <div className="flex items-center space-x-3">
-                    <span className="text-2xl opacity-50">{getFlagEmoji(language.region)}</span>
+                    <span className="text-2xl opacity-50">
+                      {getFlagEmoji(language.region)}
+                    </span>
                     <div>
-                      <p className="font-medium text-muted-foreground">{language.name}</p>
-                      <p className="text-sm text-muted-foreground">{language.nativeName}</p>
+                      <p className="font-medium text-muted-foreground">
+                        {language.name}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {language.nativeName}
+                      </p>
                     </div>
                   </div>
                   <Badge className="bg-muted text-muted-foreground text-xs">
@@ -242,9 +406,23 @@ export function Language({ onNavigate }: LanguageProps) {
 
       {/* Apply Button */}
       <div className="flex justify-end">
-        <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
+        <Button
+          className="bg-primary hover:bg-primary/90 text-primary-foreground"
+          disabled={
+            !supportedCodes.has(selectedLanguage) ||
+            selectedLanguage === activeCode
+          }
+          onClick={async () => {
+            const next = selectedLanguage.split("-")[0];
+            if (!supportedCodes.has(next)) return;
+            localStorage.setItem("i18nextLng", next);
+            await i18n.changeLanguage(next);
+          }}
+        >
           <Check className="h-4 w-4 mr-2" />
-          Apply Language
+          {selectedLanguage === activeCode
+            ? "Language Applied"
+            : "Apply Language"}
         </Button>
       </div>
 
@@ -255,11 +433,15 @@ export function Language({ onNavigate }: LanguageProps) {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            WannaBet is localized by our community of players and professional translators. If you'd like to help translate WannaBet into your language, please contact our support team.
+            WannaBet is localized by our community of players and professional
+            translators. If you'd like to help translate WannaBet into your
+            language, please contact our support team.
           </p>
           <Separator />
           <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Translation completion:</span>
+            <span className="text-sm text-muted-foreground">
+              Translation completion:
+            </span>
             <span className="text-sm font-medium text-foreground">100%</span>
           </div>
         </CardContent>
@@ -271,22 +453,22 @@ export function Language({ onNavigate }: LanguageProps) {
 // Helper function to get flag emoji from region code
 function getFlagEmoji(region: string): string {
   const flagMap: Record<string, string> = {
-    US: '🇺🇸',
-    ES: '🇪🇸',
-    FR: '🇫🇷',
-    DE: '🇩🇪',
-    BR: '🇧🇷',
-    RU: '🇷🇺',
-    JP: '🇯🇵',
-    KR: '🇰🇷',
-    CN: '🇨🇳',
-    TW: '🇹🇼',
-    IT: '🇮🇹',
-    NL: '🇳🇱',
-    PL: '🇵🇱',
-    TR: '🇹🇷',
-    SA: '🇸🇦',
-    IN: '🇮🇳',
+    US: "🇺🇸",
+    ES: "🇪🇸",
+    FR: "🇫🇷",
+    DE: "🇩🇪",
+    BR: "🇧🇷",
+    RU: "🇷🇺",
+    JP: "🇯🇵",
+    KR: "🇰🇷",
+    CN: "🇨🇳",
+    TW: "🇹🇼",
+    IT: "🇮🇹",
+    NL: "🇳🇱",
+    PL: "🇵🇱",
+    TR: "🇹🇷",
+    SA: "🇸🇦",
+    IN: "🇮🇳",
   };
-  return flagMap[region] || '🌐';
+  return flagMap[region] || "🌐";
 }

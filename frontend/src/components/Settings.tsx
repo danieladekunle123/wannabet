@@ -1,7 +1,25 @@
-import React from 'react';
-import { Card, CardContent } from './ui/card';
-import { Badge } from './ui/badge';
-import { ChevronRight, Settings as SettingsIcon, Wallet, CreditCard, Users, Lock, Eye, Keyboard, Globe, HelpCircle, Bug, MessageCircle, LogOut } from 'lucide-react';
+import React from "react";
+import { Card, CardContent } from "./ui/card";
+import { Badge } from "./ui/badge";
+import {
+  useCurrency,
+  type SupportedCurrency,
+} from "../context/CurrencyContext";
+import {
+  ChevronRight,
+  Settings as SettingsIcon,
+  Wallet,
+  CreditCard,
+  Users,
+  Lock,
+  Eye,
+  Globe,
+  DollarSign,
+  HelpCircle,
+  Bug,
+  MessageCircle,
+  LogOut,
+} from "lucide-react";
 
 interface SettingsProps {
   onNavigate?: (page: string) => void;
@@ -9,73 +27,62 @@ interface SettingsProps {
 }
 
 export function Settings({ onNavigate, onSignOut }: SettingsProps) {
+  const { currency, setCurrency } = useCurrency();
   const settingsSections = [
     {
-      label: 'Account',
+      label: "Account",
       items: [
         {
-          id: 'account-settings',
+          id: "account-settings",
           icon: SettingsIcon,
-          title: 'Account Settings',
-          description: 'Manage your profile and preferences',
+          title: "Account Settings",
+          description: "Manage your profile and preferences",
         },
         {
-          id: 'wallet-escrow',
+          id: "wallet-escrow",
           icon: Wallet,
-          title: 'Wallet & Escrow',
-          description: 'Manage funds and view transactions',
-        },
-        {
-          id: 'subscriptions-credits',
-          icon: CreditCard,
-          title: 'Subscriptions / Credits',
-          description: 'Manage your subscription and credits',
+          title: "Wallet & Escrow",
+          description: "Manage funds and view transactions",
         },
       ],
     },
     {
-      label: 'Preferences',
+      label: "Preferences",
       items: [
         {
-          id: 'privacy-security',
+          id: "privacy-security",
           icon: Lock,
-          title: 'Privacy & Security',
-          description: 'Security settings and privacy controls',
+          title: "Privacy & Security",
+          description: "Security settings and privacy controls",
         },
         {
-          id: 'keyboard-shortcuts',
-          icon: Keyboard,
-          title: 'Keyboard Shortcuts',
-          description: 'View and customize shortcuts',
-        },
-        {
-          id: 'language',
+          id: "language",
           icon: Globe,
-          title: 'Language',
-          description: 'Choose your preferred language',
+          title: "Language",
+          description: "Choose your preferred language",
         },
       ],
     },
     {
-      label: 'Support',
+      label: "Support",
       items: [
         {
-          id: 'help-center',
+          id: "help-center",
           icon: HelpCircle,
-          title: 'Help Center',
-          description: 'Browse FAQs and guides',
+          title: "Help Center",
+          description: "Browse FAQs and guides",
         },
         {
-          id: 'report-bug',
+          id: "report-bug",
           icon: Bug,
-          title: 'Report a Bug',
-          description: 'Report issues and bugs',
+          title: "Report a Bug",
+          description: "Report issues and bugs",
         },
         {
-          id: 'contact-support',
+          id: "contact-support",
           icon: MessageCircle,
-          title: 'Contact Support',
-          description: 'Get help from our team',
+          title: "Contact Support",
+          description: "Get help from our team",
         },
       ],
     },
@@ -139,6 +146,51 @@ export function Settings({ onNavigate, onSignOut }: SettingsProps) {
           </Card>
         </div>
       ))}
+
+      {/* Currency Selector */}
+      <div className="space-y-3">
+        <h2 className="text-sm text-muted-foreground uppercase tracking-wider px-1">
+          Currency
+        </h2>
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center space-x-4">
+                <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <DollarSign className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-medium text-foreground">
+                    Display Currency
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Choose your preferred currency
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {(["EUR", "USD", "GBP"] as SupportedCurrency[]).map((cur) => (
+                  <button
+                    key={cur}
+                    onClick={() => setCurrency(cur)}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                      currency === cur
+                        ? "bg-primary text-primary-foreground"
+                        : "border border-border hover:border-primary hover:bg-primary/10 text-muted-foreground"
+                    }`}
+                  >
+                    {cur === "EUR"
+                      ? "€ EUR"
+                      : cur === "USD"
+                        ? "$ USD"
+                        : "£ GBP"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Sign Out */}
       <Card className="border-destructive/50 hover-lift">

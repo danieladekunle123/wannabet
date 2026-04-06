@@ -1,10 +1,16 @@
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
+import { spawn } from "child_process";
 import multer from "multer";
 import { FriendRequestStatus, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { getUserRegion } from "../services/ipinfoService";
+import { resolveClientIp } from "../lib/clientIp";
+import { getIo } from "../lib/socket";
+import { getConfig, invalidateConfigCache } from "../lib/platformConfig";
+import { getUserStatus } from "../lib/presence";
 
 export const userRouter = Router();
 
@@ -45,6 +51,31 @@ const mimeToExtension: Record<string, string> = {
   "image/gif": ".gif",
 };
 
+const bugReportUploadDir = path.join(process.cwd(), "uploads", "bug-reports");
+if (!fs.existsSync(bugReportUploadDir)) {
+  fs.mkdirSync(bugReportUploadDir, { recursive: true });
+}
+
+const bugReportUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, bugReportUploadDir),
+    filename: (_req, file, cb) => {
+      const originalExt = path.extname(file.originalname || "").toLowerCase();
+      const mimeExt = mimeToExtension[file.mimetype] || "";
+      const safeExt = originalExt || mimeExt || ".jpg";
+      const baseName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      cb(null, `${baseName}${safeExt}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!allowedProfileImageMimeTypes.has(file.mimetype)) {
+      return cb(new Error("Unsupported file type"));
+    }
+    cb(null, true);
+  },
+});
+
 const profileUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, profileUploadDir),
@@ -69,6 +100,34 @@ const profileUpload = multer({
 userRouter.get("/me", requireAuth, async (req, res) => {
   const userId = req.user!.userId;
 
+  // Backfill geo fields for existing users created before IP-based detection rollout.
+  try {
+    const existingProfile = await prisma.profile.findUnique({
+      where: { userId },
+      select: { region: true },
+    });
+
+    if (!existingProfile?.region) {
+      const detection = await getUserRegion(resolveClientIp(req).ip);
+      await prisma.profile.upsert({
+        where: { userId },
+        create: {
+          userId,
+          country: detection.country,
+          region: detection.region || detection.matchmakingRegion,
+          continent: detection.continent,
+        } as any,
+        update: {
+          country: detection.country,
+          region: detection.region || detection.matchmakingRegion,
+          continent: detection.continent,
+        } as any,
+      });
+    }
+  } catch {
+    // Ignore detection failures so profile fetch remains resilient.
+  }
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -91,9 +150,11 @@ userRouter.get("/me", requireAuth, async (req, res) => {
           displayName: true,
           bio: true,
           country: true,
+          region: true,
+          continent: true,
           level: true,
           trustScore: true,
-        },
+        } as any,
       },
       role: true,
       playerGames: { take: 10, orderBy: { isPrimary: "desc" } },
@@ -123,9 +184,11 @@ userRouter.patch("/me/onboarding", requireAuth, async (req, res) => {
             displayName: true,
             bio: true,
             country: true,
+            region: true,
+            continent: true,
             level: true,
             trustScore: true,
-          },
+          } as any,
         },
         wallet: { select: { id: true, balance: true, escrow: true } },
         role: true,
@@ -133,8 +196,11 @@ userRouter.patch("/me/onboarding", requireAuth, async (req, res) => {
     });
 
     return res.json({ user });
-  } catch (err) {
-    console.error(err);
+  } catch (err: any) {
+    console.error("[onboarding]", err?.code, err?.message ?? err);
+    if (err?.code === "P2025") {
+      return res.status(404).json({ message: "User not found" });
+    }
     return res
       .status(500)
       .json({ message: "Failed to update onboarding status" });
@@ -185,9 +251,11 @@ userRouter.post("/me/profile-image/upload", requireAuth, (req, res) => {
               displayName: true,
               bio: true,
               country: true,
+              region: true,
+              continent: true,
               level: true,
               trustScore: true,
-            },
+            } as any,
           },
           wallet: { select: { id: true, balance: true, escrow: true } },
           role: true,
@@ -234,9 +302,11 @@ userRouter.patch("/me/profile-image", requireAuth, async (req, res) => {
             displayName: true,
             bio: true,
             country: true,
+            region: true,
+            continent: true,
             level: true,
             trustScore: true,
-          },
+          } as any,
         },
         wallet: { select: { id: true, balance: true, escrow: true } },
         role: true,
@@ -250,14 +320,16 @@ userRouter.patch("/me/profile-image", requireAuth, async (req, res) => {
   }
 });
 
-// PATCH /users/me/profile -> update bio/country/level
+// PATCH /users/me/profile -> update profile preferences (bio/country/region/etc)
+// NOTE: trustScore is NOT editable by users — it is managed automatically by the system
 userRouter.patch("/me/profile", requireAuth, async (req, res) => {
   const userId = req.user!.userId;
-  const { bio, country, level, trustScore } = req.body as {
+  const { bio, country, region, continent, level } = req.body as {
     bio?: string;
     country?: string | null;
+    region?: string | null;
+    continent?: string | null;
     level?: number;
-    trustScore?: number;
   };
 
   // Upsert profile so users without an existing Profile get one created
@@ -267,11 +339,13 @@ userRouter.patch("/me/profile", requireAuth, async (req, res) => {
       userId,
       bio: bio ?? "",
       country: country ?? null,
+      region: region ?? null,
+      continent: continent ?? null,
       level: level ?? 1,
-      trustScore: trustScore ?? 100,
+      trustScore: 87,
       displayName: undefined,
-    },
-    update: { bio, country, level, trustScore },
+    } as any,
+    update: { bio, country, region, continent, level } as any,
   });
 
   return res.json({ profile: upserted });
@@ -304,6 +378,541 @@ userRouter.get("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
   return res.json({ users, meta: { total, page, limit } });
 });
 
+// Public: read platform config (frontend can use siteName etc.)
+userRouter.get("/config", async (_req, res) => {
+  try {
+    const config = await getConfig();
+    return res.json(config);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Failed to read config" });
+  }
+});
+
+// Admin: read full platform config
+userRouter.get(
+  "/admin/config",
+  requireAuth,
+  requireRole("ADMIN"),
+  async (_req, res) => {
+    try {
+      const config = await getConfig();
+      return res.json(config);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to read config" });
+    }
+  },
+);
+
+// Admin: update platform config
+userRouter.patch(
+  "/admin/config",
+  requireAuth,
+  requireRole("ADMIN"),
+  async (req, res) => {
+    try {
+      const {
+        siteName,
+        maintenanceMode,
+        registrationEnabled,
+        trustScoreThreshold,
+        minWagerAmount,
+        maxWagerAmount,
+        maxActiveMatchesPerUser,
+      } = req.body as Partial<{
+        siteName: string;
+        maintenanceMode: boolean;
+        registrationEnabled: boolean;
+        trustScoreThreshold: number;
+        minWagerAmount: number;
+        maxWagerAmount: number;
+        maxActiveMatchesPerUser: number;
+      }>;
+
+      const updated = await prisma.platformConfig.upsert({
+        where: { id: 1 },
+        create: {
+          id: 1,
+          siteName: siteName ?? "WannaBet?",
+          maintenanceMode: maintenanceMode ?? false,
+          registrationEnabled: registrationEnabled ?? true,
+          trustScoreThreshold: trustScoreThreshold ?? 0,
+          minWagerAmount: minWagerAmount ?? 5,
+          maxWagerAmount: maxWagerAmount ?? 10000,
+          maxActiveMatchesPerUser: maxActiveMatchesPerUser ?? 10,
+          updatedAt: new Date(),
+        },
+        update: {
+          ...(siteName !== undefined && { siteName }),
+          ...(maintenanceMode !== undefined && { maintenanceMode }),
+          ...(registrationEnabled !== undefined && { registrationEnabled }),
+          ...(trustScoreThreshold !== undefined && { trustScoreThreshold }),
+          ...(minWagerAmount !== undefined && { minWagerAmount }),
+          ...(maxWagerAmount !== undefined && { maxWagerAmount }),
+          ...(maxActiveMatchesPerUser !== undefined && {
+            maxActiveMatchesPerUser,
+          }),
+        },
+      });
+
+      invalidateConfigCache();
+      return res.json(updated);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to update config" });
+    }
+  },
+);
+
+// Submit a bug report (authenticated users)
+userRouter.post(
+  "/bug-reports",
+  requireAuth,
+  bugReportUpload.single("screenshot"),
+  async (req, res) => {
+    try {
+      const userId = req.user!.userId;
+      const { title, category, severity, description, steps } = req.body as {
+        title: string;
+        category: string;
+        severity: string;
+        description: string;
+        steps?: string;
+      };
+
+      if (!title || !category || !severity || !description) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      const imageUrl = req.file
+        ? `/uploads/bug-reports/${req.file.filename}`
+        : null;
+
+      const report = await prisma.bugReport.create({
+        data: {
+          userId,
+          title,
+          category,
+          severity,
+          description,
+          steps: steps || null,
+          imageUrl,
+          status: "open",
+        },
+        select: {
+          id: true,
+          title: true,
+          category: true,
+          severity: true,
+          status: true,
+          createdAt: true,
+        },
+      });
+
+      return res.status(201).json(report);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to submit bug report" });
+    }
+  },
+);
+
+// Get current user's own bug reports
+userRouter.get("/bug-reports/mine", requireAuth, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const reports = await prisma.bugReport.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        severity: true,
+        status: true,
+        imageUrl: true,
+        adminNote: true,
+        createdAt: true,
+      },
+    });
+    return res.json(reports);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Failed to fetch bug reports" });
+  }
+});
+
+// Admin: list all bug reports
+userRouter.get(
+  "/admin/bug-reports",
+  requireAuth,
+  requireRole("ADMIN"),
+  async (req, res) => {
+    try {
+      const { status } = req.query as { status?: string };
+      const reports = await prisma.bugReport.findMany({
+        where: status && status !== "all" ? { status } : {},
+        orderBy: { createdAt: "desc" },
+        include: {
+          user: { select: { id: true, username: true, avatarUrl: true } },
+        },
+      });
+      return res.json(reports);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to fetch bug reports" });
+    }
+  },
+);
+
+// Admin: update bug report status / add note
+userRouter.patch(
+  "/admin/bug-reports/:id",
+  requireAuth,
+  requireRole("ADMIN"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status, adminNote } = req.body as {
+        status?: string;
+        adminNote?: string;
+      };
+
+      const validStatuses = ["open", "investigating", "fixed", "closed"];
+      if (status && !validStatuses.includes(status)) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+
+      const updated = await prisma.bugReport.update({
+        where: { id },
+        data: {
+          ...(status && { status }),
+          ...(adminNote !== undefined && { adminNote }),
+        },
+        include: {
+          user: { select: { id: true, username: true } },
+        },
+      });
+
+      return res.json(updated);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to update bug report" });
+    }
+  },
+);
+
+// Admin: real-time health/status endpoint
+userRouter.get(
+  "/admin/health",
+  requireAuth,
+  requireRole("ADMIN"),
+  async (_req, res) => {
+    try {
+      const dbStart = Date.now();
+      const [totalUsers, activeMatchCount, openDisputeCount] =
+        await Promise.all([
+          prisma.user.count(),
+          prisma.match.count({
+            where: {
+              status: { notIn: ["finished", "completed", "cancelled"] },
+            },
+          }),
+          prisma.dispute.count({ where: { status: { not: "resolved" } } }),
+        ]);
+      const dbLatencyMs = Date.now() - dbStart;
+
+      const uptimeSecs = Math.floor(process.uptime());
+      const mem = process.memoryUsage();
+
+      let connectedClients = 0;
+      try {
+        connectedClients = getIo().engine.clientsCount;
+      } catch {
+        // socket not initialized yet
+      }
+
+      return res.json({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        uptimeSecs,
+        db: { status: "ok", latencyMs: dbLatencyMs },
+        memory: {
+          heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+          heapTotalMb: Math.round(mem.heapTotal / 1024 / 1024),
+          rssMb: Math.round(mem.rss / 1024 / 1024),
+        },
+        connectedClients,
+        totalUsers,
+        activeMatches: activeMatchCount,
+        openDisputes: openDisputeCount,
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to fetch health data" });
+    }
+  },
+);
+
+// Admin: revenue overview — real deposits, withdrawals, fees, escrow
+userRouter.get(
+  "/admin/revenue",
+  requireAuth,
+  requireRole("ADMIN"),
+  async (_req, res) => {
+    try {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      // Deposit totals (Stripe payments credited to wallets)
+      const [depositAll, depositMonth] = await Promise.all([
+        prisma.ledgerEntry.aggregate({
+          where: { type: "deposit" },
+          _sum: { amount: true },
+        }),
+        prisma.ledgerEntry.aggregate({
+          where: { type: "deposit", createdAt: { gte: startOfMonth } },
+          _sum: { amount: true },
+        }),
+      ]);
+
+      // Withdrawal totals (amounts stored as negative in ledger)
+      const [withdrawalAll, withdrawalMonth] = await Promise.all([
+        prisma.ledgerEntry.aggregate({
+          where: { type: "withdrawal" },
+          _sum: { amount: true },
+        }),
+        prisma.ledgerEntry.aggregate({
+          where: { type: "withdrawal", createdAt: { gte: startOfMonth } },
+          _sum: { amount: true },
+        }),
+      ]);
+
+      // Completed match volume (sum of stakes; each match has 2 stakes = pot)
+      const completedMatches = await prisma.match.findMany({
+        where: {
+          status: {
+            in: ["COMPLETED", "completed", "finished", "RESULT_CONFIRMED"],
+          },
+        },
+        select: { stake: true, createdAt: true },
+      });
+      const matchVolumeAll = completedMatches.reduce(
+        (sum, m) => sum + m.stake * 2,
+        0,
+      );
+      const matchVolumeMonth = completedMatches
+        .filter((m) => m.createdAt >= startOfMonth)
+        .reduce((sum, m) => sum + m.stake * 2, 0);
+
+      // Tournament entry fee revenue (sum of entry fees × participants)
+      const tournaments = await prisma.tournament.findMany({
+        select: {
+          entryFee: true,
+          participants: { select: { id: true, paid: true } },
+        },
+      });
+      const tournamentRevenueAll = tournaments.reduce(
+        (sum, t) =>
+          sum +
+          t.entryFee * t.participants.filter((p) => p.paid === true).length,
+        0,
+      );
+
+      // Current escrow across all wallets
+      const escrowAgg = await prisma.wallet.aggregate({
+        _sum: { escrow: true },
+      });
+
+      // Platform fee rate (5% configured in admin settings)
+      const PLATFORM_FEE_RATE = 0.05;
+      const WITHDRAWAL_FEE_RATE = 0.02;
+
+      const totalDepositsCents = depositAll._sum?.amount ?? 0;
+      const totalDepositsMonthCents = depositMonth._sum?.amount ?? 0;
+
+      // Withdrawals are stored as negative amounts
+      const totalWithdrawalsCents = Math.abs(withdrawalAll._sum?.amount ?? 0);
+      const totalWithdrawalsMonthCents = Math.abs(
+        withdrawalMonth._sum?.amount ?? 0,
+      );
+
+      const totalEscrowCents = escrowAgg._sum?.escrow ?? 0;
+
+      // Fees computed from actual activity
+      const matchFees = Math.round(matchVolumeAll * PLATFORM_FEE_RATE);
+      const matchFeesMonth = Math.round(matchVolumeMonth * PLATFORM_FEE_RATE);
+      const withdrawalFees = Math.round(
+        totalWithdrawalsCents * WITHDRAWAL_FEE_RATE,
+      );
+      const withdrawalFeesMonth = Math.round(
+        totalWithdrawalsMonthCents * WITHDRAWAL_FEE_RATE,
+      );
+      const totalFees = matchFees + withdrawalFees + tournamentRevenueAll;
+      const totalFeesMonth = matchFeesMonth + withdrawalFeesMonth;
+
+      return res.json({
+        // All-time (in cents)
+        totalDepositsCents,
+        totalWithdrawalsCents,
+        totalEscrowCents,
+        matchVolumeCents: matchVolumeAll,
+        tournamentRevenueCents: tournamentRevenueAll,
+        matchFeesCents: matchFees,
+        withdrawalFeesCents: withdrawalFees,
+        totalFeesCents: totalFees,
+        // This month (in cents)
+        monthDepositsCents: totalDepositsMonthCents,
+        monthWithdrawalsCents: totalWithdrawalsMonthCents,
+        monthMatchVolumeCents: matchVolumeMonth,
+        monthFeesCents: totalFeesMonth,
+      });
+    } catch (err) {
+      console.error(err);
+      return res
+        .status(500)
+        .json({ message: "Failed to compute revenue data" });
+    }
+  },
+);
+
+// Admin: stream a pg_dump SQL backup as a file download
+userRouter.get(
+  "/admin/db-backup",
+  requireAuth,
+  requireRole("ADMIN"),
+  (req, res) => {
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
+      return res.status(500).json({ message: "DATABASE_URL not configured" });
+    }
+    const filename = `wannabet-backup-${new Date().toISOString().slice(0, 10)}.sql`;
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Type", "application/octet-stream");
+
+    const child = spawn("pg_dump", [`--dbname=${dbUrl}`], {
+      env: { ...process.env },
+    });
+
+    child.stdout.pipe(res);
+    child.stderr.on("data", (d) => console.error("[pg_dump]", String(d)));
+    child.on("error", (err) => {
+      console.error("[pg_dump] failed to start:", err);
+      if (!res.headersSent) {
+        res
+          .status(500)
+          .json({ message: "pg_dump not available: " + err.message });
+      }
+    });
+  },
+);
+
+// Admin: run VACUUM ANALYZE to reclaim space and refresh planner stats
+userRouter.post(
+  "/admin/db-optimize",
+  requireAuth,
+  requireRole("ADMIN"),
+  async (_req, res) => {
+    try {
+      await prisma.$executeRawUnsafe("VACUUM ANALYZE");
+      return res.json({
+        ok: true,
+        message: "VACUUM ANALYZE completed successfully",
+      });
+    } catch (err: any) {
+      console.error(err);
+      return res
+        .status(500)
+        .json({ message: err?.message || "VACUUM ANALYZE failed" });
+    }
+  },
+);
+
+// Admin: recent activity log — bans and warnings merged
+userRouter.get(
+  "/admin/activity-log",
+  requireAuth,
+  requireRole("ADMIN"),
+  async (_req, res) => {
+    try {
+      // Fetch recent ban records
+      const bans = await prisma.ban.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        include: {
+          moderator: { select: { username: true } },
+          user: { select: { username: true } },
+        },
+      });
+
+      // Fetch recent MOD_WARNING PlayerLog entries (actor-triggered only)
+      const warns = await prisma.playerLog.findMany({
+        where: { type: "MOD_WARNING", actorId: { not: null } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+
+      // Bulk-lookup actor and target usernames for warns
+      const actorIds = [...new Set(warns.map((w) => w.actorId!))];
+      const targetIds = [...new Set(warns.map((w) => w.userId))];
+      const [actors, targets] = await Promise.all([
+        actorIds.length
+          ? prisma.user.findMany({
+              where: { id: { in: actorIds } },
+              select: { id: true, username: true },
+            })
+          : Promise.resolve([]),
+        targetIds.length
+          ? prisma.user.findMany({
+              where: { id: { in: targetIds } },
+              select: { id: true, username: true },
+            })
+          : Promise.resolve([]),
+      ]);
+      const actorMap = Object.fromEntries(
+        actors.map((u) => [u.id, u.username]),
+      );
+      const targetMap = Object.fromEntries(
+        targets.map((u) => [u.id, u.username]),
+      );
+
+      // Normalize ban records
+      const banEntries = bans.map((b) => ({
+        id: `ban-${b.id}`,
+        actorName: b.moderator.username,
+        action: b.expiresAt
+          ? `Suspended user: ${b.user.username}${b.reason ? ` — ${b.reason}` : ""}`
+          : `Banned user: ${b.user.username}${b.reason ? ` — ${b.reason}` : ""}`,
+        type: "moderation",
+        createdAt: b.createdAt.toISOString(),
+      }));
+
+      // Normalize warn records
+      const warnEntries = warns.map((w) => ({
+        id: `warn-${w.id}`,
+        actorName: actorMap[w.actorId!] ?? "Unknown",
+        action: `Warned user: ${targetMap[w.userId] ?? "Unknown"}${w.message ? ` — ${w.message}` : ""}`,
+        type: "moderation",
+        createdAt: w.createdAt.toISOString(),
+      }));
+
+      // Merge, sort descending by date, cap at 50
+      const logs = [...banEntries, ...warnEntries]
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )
+        .slice(0, 50);
+
+      return res.json({ logs });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to fetch activity log" });
+    }
+  },
+);
+
 // Stats for admin/moderator dashboards
 userRouter.get(
   "/stats",
@@ -327,15 +936,113 @@ userRouter.get(
         _sum: { balance: true },
       });
 
+      const now = new Date();
+
+      // Permanently banned: active ban with no expiry
+      const permanentBanUsers = await prisma.ban.findMany({
+        where: { active: true, expiresAt: null },
+        select: { userId: true },
+        distinct: ["userId"],
+      });
+      const bannedUserIds = new Set(permanentBanUsers.map((b) => b.userId));
+
+      // Suspended: active ban with future expiry, not permanently banned
+      const tempBanUsers = await prisma.ban.findMany({
+        where: { active: true, expiresAt: { gt: now } },
+        select: { userId: true },
+        distinct: ["userId"],
+      });
+      const suspendedCount = tempBanUsers.filter(
+        (b) => !bannedUserIds.has(b.userId),
+      ).length;
+      const suspendedUserIds = new Set(
+        tempBanUsers
+          .map((b) => b.userId)
+          .filter((id) => !bannedUserIds.has(id)),
+      );
+
+      // Warned: has at least one warn/report/flag log, not banned or suspended
+      const warnLogUsers = await prisma.playerLog.findMany({
+        where: {
+          OR: [
+            { type: { contains: "warn", mode: "insensitive" } },
+            { type: { contains: "report", mode: "insensitive" } },
+            { type: { contains: "flag", mode: "insensitive" } },
+          ],
+        },
+        select: { userId: true },
+        distinct: ["userId"],
+      });
+      const warnedCount = warnLogUsers.filter(
+        (u) => !bannedUserIds.has(u.userId) && !suspendedUserIds.has(u.userId),
+      ).length;
+
       return res.json({
         totalUsers,
         matchesByStatus,
         totalEscrow: escrowAgg._sum?.escrow || 0,
         totalWalletBalance: balanceAgg._sum?.balance || 0,
+        bannedCount: bannedUserIds.size,
+        suspendedCount,
+        warnedCount,
       });
     } catch (err) {
       console.error(err);
       return res.status(500).json({ message: "Failed to compute stats" });
+    }
+  },
+);
+
+// Moderator: platform activity for last 7 days (matches created + disputes created)
+userRouter.get(
+  "/moderation/activity",
+  requireAuth,
+  requireRole("MODERATOR"),
+  async (_req, res) => {
+    try {
+      const now = new Date();
+      const days: { day: string; date: Date }[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        d.setHours(0, 0, 0, 0);
+        days.push({
+          day: d.toLocaleDateString("en-US", { weekday: "short" }),
+          date: d,
+        });
+      }
+
+      const since = days[0]!.date;
+
+      const [matches, disputes] = await Promise.all([
+        prisma.match.findMany({
+          where: { createdAt: { gte: since } },
+          select: { createdAt: true },
+        }),
+        prisma.dispute.findMany({
+          where: { createdAt: { gte: since } },
+          select: { createdAt: true },
+        }),
+      ]);
+
+      const result = days.map(({ day, date }) => {
+        const next = new Date(date);
+        next.setDate(next.getDate() + 1);
+        return {
+          day,
+          matches: matches.filter(
+            (m) => m.createdAt >= date && m.createdAt < next,
+          ).length,
+          disputes: disputes.filter(
+            (d) => d.createdAt >= date && d.createdAt < next,
+          ).length,
+        };
+      });
+
+      return res.json(result);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to fetch activity data" });
     }
   },
 );
@@ -434,7 +1141,9 @@ userRouter.get(
       return res.json({ players });
     } catch (err) {
       console.error(err);
-      return res.status(500).json({ message: "Failed to list moderation players" });
+      return res
+        .status(500)
+        .json({ message: "Failed to list moderation players" });
     }
   },
 );
@@ -571,7 +1280,9 @@ userRouter.get(
       return res.json({ player });
     } catch (err) {
       console.error(err);
-      return res.status(500).json({ message: "Failed to fetch moderation player" });
+      return res
+        .status(500)
+        .json({ message: "Failed to fetch moderation player" });
     }
   },
 );
@@ -756,12 +1467,10 @@ userRouter.post("/:id/friend-requests", requireAuth, async (req, res) => {
     });
 
     if (incomingPending) {
-      return res
-        .status(409)
-        .json({
-          message:
-            "This user already sent you a request. Accept it from Requests.",
-        });
+      return res.status(409).json({
+        message:
+          "This user already sent you a request. Accept it from Requests.",
+      });
     }
 
     const request = await prisma.friendRequest.upsert({
@@ -961,7 +1670,7 @@ userRouter.get("/me/friends", requireAuth, async (req, res) => {
             username: true,
             avatarUrl: true,
             profileImageUrl: true,
-            profile: { select: { displayName: true } },
+            profile: { select: { displayName: true, trustScore: true } },
           },
         },
       },
@@ -1066,6 +1775,319 @@ userRouter.delete("/:id/block", requireAuth, async (req, res) => {
   }
 });
 
+// ── GET /users/me/stats-timeseries?period=7d|30d|3mo|6mo|1y|all ─────────────
+// Returns bucketed win/loss, earnings, and game distribution for the charts.
+userRouter.get("/me/stats-timeseries", requireAuth, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const period = String(req.query.period || "30d") as
+      | "7d"
+      | "30d"
+      | "3mo"
+      | "6mo"
+      | "1y"
+      | "all";
+
+    const now = new Date();
+    let since: Date | null = null;
+
+    switch (period) {
+      case "7d":
+        since = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+        break;
+      case "30d":
+        since = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+        break;
+      case "3mo":
+        since = new Date(now.getTime() - 90 * 24 * 3600 * 1000);
+        break;
+      case "6mo":
+        since = new Date(now.getTime() - 180 * 24 * 3600 * 1000);
+        break;
+      case "1y":
+        since = new Date(now.getTime() - 365 * 24 * 3600 * 1000);
+        break;
+      case "all":
+        since = null;
+        break;
+    }
+
+    const matchWhere: any = {
+      status: "COMPLETED",
+      OR: [{ hostId: userId }, { joinerId: userId }],
+    };
+    if (since) matchWhere.createdAt = { gte: since };
+
+    const matches = (await prisma.match.findMany({
+      where: matchWhere,
+      select: {
+        id: true,
+        game: true,
+        stake: true,
+        createdAt: true,
+        reportedWinnerId: true,
+      },
+      orderBy: { createdAt: "asc" },
+    })) as any[];
+
+    // ── Wallet + ledger entries ────────────────────────────────────────────
+    const wallet = await prisma.wallet.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    const ledgerWhere: any = { type: "payout" };
+    if (wallet) ledgerWhere.walletId = wallet.id;
+    if (since) ledgerWhere.createdAt = { gte: since };
+
+    const ledgerEntries = wallet
+      ? await (prisma.ledgerEntry as any).findMany({
+          where: ledgerWhere,
+          select: { amount: true, createdAt: true },
+          orderBy: { createdAt: "asc" },
+        })
+      : [];
+
+    // ── Bucketing helpers ─────────────────────────────────────────────────
+    const DAY_MS = 24 * 3600 * 1000;
+    const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MONTHS = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
+    type WLBucket = { period: string; wins: number; losses: number };
+    type EBucket = { period: string; earnings: number };
+
+    let winLossData: WLBucket[] = [];
+    let earningsData: EBucket[] = [];
+
+    if (period === "7d") {
+      // One bucket per day; last 7 days in order
+      const buckets: Record<string, WLBucket> = {};
+      const eBuckets: Record<string, EBucket> = {};
+      for (let d = 6; d >= 0; d--) {
+        const dt = new Date(now.getTime() - d * DAY_MS);
+        const key = DAYS[dt.getDay()] ?? "Unknown";
+        buckets[key] = { period: key, wins: 0, losses: 0 };
+        eBuckets[key] = { period: key, earnings: 0 };
+      }
+      for (const m of matches) {
+        const key = DAYS[new Date(m.createdAt).getDay()] ?? "Unknown";
+        if (!buckets[key]) continue;
+        (buckets[key] as WLBucket).wins +=
+          m.reportedWinnerId === userId ? 1 : 0;
+        (buckets[key] as WLBucket).losses +=
+          m.reportedWinnerId && m.reportedWinnerId !== userId ? 1 : 0;
+      }
+      for (const e of ledgerEntries) {
+        const key = DAYS[new Date(e.createdAt).getDay()] ?? "Unknown";
+        if (eBuckets[key])
+          (eBuckets[key] as EBucket).earnings += Math.round(e.amount / 100);
+      }
+      winLossData = Object.values(buckets);
+      earningsData = Object.values(eBuckets);
+    } else if (period === "30d") {
+      // 4 weekly buckets
+      const weekBuckets: WLBucket[] = Array.from({ length: 4 }, (_, i) => ({
+        period: `Week ${i + 1}`,
+        wins: 0,
+        losses: 0,
+      }));
+      const weekEBuckets: EBucket[] = Array.from({ length: 4 }, (_, i) => ({
+        period: `Week ${i + 1}`,
+        earnings: 0,
+      }));
+      for (const m of matches) {
+        const daysAgo =
+          (now.getTime() - new Date(m.createdAt).getTime()) / DAY_MS;
+        const weekIdx = Math.min(3, Math.floor(daysAgo / 7));
+        const bucket = weekBuckets[3 - weekIdx];
+        if (!bucket) continue;
+        if (m.reportedWinnerId === userId) bucket.wins++;
+        else if (m.reportedWinnerId) bucket.losses++;
+      }
+      for (const e of ledgerEntries) {
+        const daysAgo =
+          (now.getTime() - new Date(e.createdAt).getTime()) / DAY_MS;
+        const weekIdx = Math.min(3, Math.floor(daysAgo / 7));
+        const bucket = weekEBuckets[3 - weekIdx];
+        if (bucket) bucket.earnings += Math.round(e.amount / 100);
+      }
+      winLossData = weekBuckets;
+      earningsData = weekEBuckets;
+    } else if (period === "3mo") {
+      const mBuckets: WLBucket[] = Array.from({ length: 3 }, (_, i) => ({
+        period: `Month ${i + 1}`,
+        wins: 0,
+        losses: 0,
+      }));
+      const mEBuckets: EBucket[] = Array.from({ length: 3 }, (_, i) => ({
+        period: `Month ${i + 1}`,
+        earnings: 0,
+      }));
+      for (const m of matches) {
+        const daysAgo =
+          (now.getTime() - new Date(m.createdAt).getTime()) / DAY_MS;
+        const monthIdx = Math.min(2, Math.floor(daysAgo / 30));
+        const bucket = mBuckets[2 - monthIdx];
+        if (!bucket) continue;
+        if (m.reportedWinnerId === userId) bucket.wins++;
+        else if (m.reportedWinnerId) bucket.losses++;
+      }
+      for (const e of ledgerEntries) {
+        const daysAgo =
+          (now.getTime() - new Date(e.createdAt).getTime()) / DAY_MS;
+        const monthIdx = Math.min(2, Math.floor(daysAgo / 30));
+        const bucket = mEBuckets[2 - monthIdx];
+        if (bucket) bucket.earnings += Math.round(e.amount / 100);
+      }
+      winLossData = mBuckets;
+      earningsData = mEBuckets;
+    } else if (period === "6mo" || period === "1y") {
+      const numMonths = period === "6mo" ? 6 : 12;
+      const monthBuckets: Record<string, WLBucket> = {};
+      const monthEBuckets: Record<string, EBucket> = {};
+      for (let m = numMonths - 1; m >= 0; m--) {
+        const dt = new Date(now.getFullYear(), now.getMonth() - m, 1);
+        const key = MONTHS[dt.getMonth()] ?? "Unknown";
+        monthBuckets[key] = { period: key, wins: 0, losses: 0 };
+        monthEBuckets[key] = { period: key, earnings: 0 };
+      }
+      for (const m of matches) {
+        const key = MONTHS[new Date(m.createdAt).getMonth()] ?? "Unknown";
+        if (!monthBuckets[key]) continue;
+        (monthBuckets[key] as WLBucket).wins +=
+          m.reportedWinnerId === userId ? 1 : 0;
+        (monthBuckets[key] as WLBucket).losses +=
+          m.reportedWinnerId && m.reportedWinnerId !== userId ? 1 : 0;
+      }
+      for (const e of ledgerEntries) {
+        const key = MONTHS[new Date(e.createdAt).getMonth()] ?? "Unknown";
+        if (monthEBuckets[key])
+          (monthEBuckets[key] as EBucket).earnings += Math.round(
+            e.amount / 100,
+          );
+      }
+      winLossData = Object.values(monthBuckets);
+      earningsData = Object.values(monthEBuckets);
+    } else {
+      // all time — quarterly buckets
+      const qBuckets: Record<string, WLBucket> = {};
+      const qEBuckets: Record<string, EBucket> = {};
+      for (const m of matches) {
+        const d = new Date(m.createdAt);
+        const key = `${d.getFullYear()} Q${Math.floor(d.getMonth() / 3) + 1}`;
+        if (!qBuckets[key]) {
+          qBuckets[key] = { period: key, wins: 0, losses: 0 };
+          qEBuckets[key] = { period: key, earnings: 0 };
+        }
+        if (m.reportedWinnerId === userId) qBuckets[key].wins++;
+        else if (m.reportedWinnerId) qBuckets[key].losses++;
+      }
+      for (const e of ledgerEntries) {
+        const d = new Date(e.createdAt);
+        const key = `${d.getFullYear()} Q${Math.floor(d.getMonth() / 3) + 1}`;
+        if (qEBuckets[key])
+          qEBuckets[key].earnings += Math.round(e.amount / 100);
+      }
+      winLossData = Object.values(qBuckets);
+      earningsData = Object.values(qEBuckets);
+    }
+
+    // ── Game distribution (all time, from match history) ──────────────────
+    const allMatches = (await prisma.match.findMany({
+      where: {
+        status: "COMPLETED",
+        OR: [{ hostId: userId }, { joinerId: userId }],
+      },
+      select: { game: true },
+    })) as any[];
+
+    const gameCounts: Record<string, number> = {};
+    for (const m of allMatches) {
+      gameCounts[m.game] = (gameCounts[m.game] || 0) + 1;
+    }
+    const total = Object.values(gameCounts).reduce((a, b) => a + b, 0) || 1;
+    const COLORS = [
+      "#E50914",
+      "#F59E0B",
+      "#3B82F6",
+      "#8B5CF6",
+      "#10B981",
+      "#EC4899",
+      "#14B8A6",
+      "#F97316",
+    ];
+    const gameDistribution = Object.entries(gameCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count], i) => ({
+        name,
+        value: Math.round((count / total) * 100),
+        color: COLORS[i % COLORS.length],
+      }));
+
+    return res.json({ winLossData, earningsData, gameDistribution });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Failed to load stats timeseries" });
+  }
+});
+
+// ── GET /users/presence?userIds=id1,id2,... ───────────────────────────────────
+// Returns real-time status + lastSeen for a list of user IDs (no auth required)
+// Must be registered BEFORE /:id to avoid the wildcard swallowing this route.
+userRouter.get("/presence", async (req, res) => {
+  try {
+    const raw = String(req.query.userIds || "").trim();
+    if (!raw) return res.json({ presence: {} });
+
+    const userIds = raw
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .slice(0, 100); // max 100
+
+    const profiles = await prisma.profile.findMany({
+      where: { userId: { in: userIds } },
+      select: { userId: true, lastSeen: true },
+    });
+    const lastSeenMap: Record<string, string | null> = Object.fromEntries(
+      profiles.map((p) => [
+        p.userId,
+        p.lastSeen ? p.lastSeen.toISOString() : null,
+      ]),
+    );
+
+    const presence: Record<
+      string,
+      { status: "online" | "idle" | "dnd" | "offline"; lastSeen: string | null }
+    > = {};
+
+    for (const uid of userIds) {
+      presence[uid] = {
+        status: getUserStatus(uid),
+        lastSeen: lastSeenMap[uid] ?? null,
+      };
+    }
+
+    return res.json({ presence });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Failed to fetch presence" });
+  }
+});
+
 // Public profile: GET /users/:id
 userRouter.get("/:id", async (req, res) => {
   const id = req.params.id;
@@ -1083,9 +2105,11 @@ userRouter.get("/:id", async (req, res) => {
           displayName: true,
           bio: true,
           country: true,
+          region: true,
+          continent: true,
           level: true,
           trustScore: true,
-        },
+        } as any,
       },
       playerGames: { take: 3, orderBy: { isPrimary: "desc" } },
     },
@@ -1093,15 +2117,114 @@ userRouter.get("/:id", async (req, res) => {
 
   if (!user) return res.status(404).json({ message: "User not found" });
 
-  return res.json({ user });
+  // Compute real stats from completed matches
+  const completedMatches = await (prisma.match as any).findMany({
+    where: {
+      status: "COMPLETED",
+      OR: [{ hostId: id }, { joinerId: id }],
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      game: true,
+      stake: true,
+      createdAt: true,
+      hostId: true,
+      joinerId: true,
+      reportedWinnerId: true,
+      host: { select: { id: true, username: true } },
+      joiner: { select: { id: true, username: true } },
+    },
+  });
+
+  const wins = completedMatches.filter(
+    (m: any) => m.reportedWinnerId === id,
+  ).length;
+  const losses = completedMatches.filter(
+    (m: any) => m.reportedWinnerId != null && m.reportedWinnerId !== id,
+  ).length;
+  const totalMatches = completedMatches.length;
+
+  // Win/loss streak from newest → oldest
+  let currentStreak = 0;
+  let longestWinStreak = 0;
+  let tempStreak = 0;
+  let stillCurrent = true;
+  for (const m of completedMatches) {
+    const isWin = m.reportedWinnerId === id;
+    const isLoss = m.reportedWinnerId != null && m.reportedWinnerId !== id;
+    if (isWin) {
+      tempStreak++;
+      if (stillCurrent) currentStreak++;
+    } else if (isLoss) {
+      stillCurrent = false;
+      longestWinStreak = Math.max(longestWinStreak, tempStreak);
+      tempStreak = 0;
+    }
+    // unresolved (no reportedWinnerId) doesn't break streak but doesn't count
+  }
+  longestWinStreak = Math.max(longestWinStreak, tempStreak);
+
+  // Total earnings from payout ledger entries
+  const wallet = await prisma.wallet.findUnique({
+    where: { userId: id },
+    select: { id: true },
+  });
+  let totalEarningsCents = 0;
+  if (wallet) {
+    const agg = await (prisma.ledgerEntry as any).aggregate({
+      where: { walletId: wallet.id, type: "payout" },
+      _sum: { amount: true },
+    });
+    totalEarningsCents = agg._sum?.amount ?? 0;
+  }
+
+  // Recent match history (up to 20)
+  const recentMatches = completedMatches.slice(0, 20).map((m: any) => {
+    const isWin = m.reportedWinnerId === id;
+    const isLoss = m.reportedWinnerId != null && m.reportedWinnerId !== id;
+    const opponent = m.hostId === id ? m.joiner : m.host;
+    return {
+      id: m.id,
+      game: m.game,
+      result: isWin ? "Win" : isLoss ? "Loss" : "Draw",
+      stake: m.stake,
+      earnedCents: isWin ? m.stake : isLoss ? -m.stake : 0,
+      date: m.createdAt,
+      opponentUsername: opponent?.username ?? "Unknown",
+      opponentId: opponent?.id ?? null,
+    };
+  });
+
+  const statsData = {
+    totalMatches,
+    wins,
+    losses,
+    totalEarningsCents,
+    avgMatchEarningsCents:
+      totalMatches > 0 ? Math.round(totalEarningsCents / totalMatches) : 0,
+    currentStreak,
+    longestWinStreak,
+    winRate:
+      wins + losses > 0
+        ? parseFloat(((wins / (wins + losses)) * 100).toFixed(1))
+        : 0,
+  };
+
+  return res.json({ user, stats: statsData, recentMatches });
 });
 
 // Public lookup by username: GET /users/by-username/:username
 userRouter.get("/by-username/:username", async (req, res) => {
-  const username = req.params.username;
+  const username = String(req.params.username || "").trim();
   try {
-    const user = await prisma.user.findUnique({
-      where: { username },
+    const user = await prisma.user.findFirst({
+      where: {
+        username: {
+          equals: username,
+          mode: "insensitive",
+        },
+      },
       select: {
         id: true,
         username: true,
@@ -1245,9 +2368,11 @@ userRouter.patch("/me", requireAuth, async (req, res) => {
             displayName: true,
             bio: true,
             country: true,
+            region: true,
+            continent: true,
             level: true,
             trustScore: true,
-          },
+          } as any,
         },
       },
     });
@@ -1393,3 +2518,66 @@ userRouter.get(
     }
   },
 );
+
+// ── POST /users/me/deactivate ─────────────────────────────────────────────────
+// Sets isDeactivated=true on the current user's account. Token remains valid
+// but the user is treated as inactive. Logging back in clears the flag.
+userRouter.post("/me/deactivate", requireAuth, async (req, res) => {
+  const userId = req.user!.userId;
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { isDeactivated: true },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Failed to deactivate account" });
+  }
+});
+
+// ── DELETE /users/me ──────────────────────────────────────────────────────────
+// Permanently deletes the authenticated user's account and all related data.
+// Must confirm with "DELETE MY ACCOUNT" in request body.
+userRouter.delete("/me", requireAuth, async (req, res) => {
+  const userId = req.user!.userId;
+  const { confirmation } = req.body as { confirmation?: string };
+  if (confirmation !== "DELETE MY ACCOUNT") {
+    return res
+      .status(400)
+      .json({ message: "Confirmation phrase does not match" });
+  }
+  try {
+    // Delete in dependency order to avoid FK constraint violations
+    await prisma.$transaction([
+      prisma.friendRequest.deleteMany({
+        where: { OR: [{ senderId: userId }, { receiverId: userId }] },
+      }),
+      prisma.friend.deleteMany({
+        where: { OR: [{ userId }, { friendId: userId }] },
+      }),
+      prisma.blockedUser.deleteMany({
+        where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
+      }),
+      prisma.message.deleteMany({
+        where: { OR: [{ senderId: userId }, { receiverId: userId }] },
+      }),
+      prisma.conversation.deleteMany({
+        where: { OR: [{ firstUserId: userId }, { secondUserId: userId }] },
+      }),
+      prisma.tournamentEntry.deleteMany({ where: { userId } }),
+      prisma.teamMember.deleteMany({ where: { userId } }),
+      prisma.playerGame.deleteMany({ where: { userId } }),
+      prisma.playerLog.deleteMany({ where: { userId } }),
+      prisma.escrow.deleteMany({ where: { userId } }),
+      prisma.bugReport.deleteMany({ where: { userId } }),
+      prisma.profile.deleteMany({ where: { userId } }),
+      prisma.wallet.deleteMany({ where: { userId } }),
+      prisma.user.delete({ where: { id: userId } }),
+    ]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Failed to delete account" });
+  }
+});

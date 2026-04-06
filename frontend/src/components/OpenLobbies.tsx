@@ -1,10 +1,24 @@
-import React, { useState } from 'react';
-import { Button } from './ui/button';
-import { Badge } from './ui/badge';
-import { Card, CardContent, CardHeader } from './ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Clock, Users, DollarSign, MapPin, Shield, Star, ArrowRight } from 'lucide-react';
-import { ImageWithFallback } from './figma/ImageWithFallback';
+import React, { useState } from "react";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { Card, CardContent, CardHeader } from "./ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import {
+  Clock,
+  Users,
+  DollarSign,
+  MapPin,
+  Shield,
+  Star,
+  ArrowRight,
+} from "lucide-react";
+import { ImageWithFallback } from "./figma/ImageWithFallback";
 
 interface Lobby {
   id: string;
@@ -25,90 +39,99 @@ interface OpenLobbiesProps {
   showSeeAll?: boolean;
 }
 
-export function OpenLobbies({ onNavigate, showSeeAll = false }: OpenLobbiesProps) {
-  const [gameFilter, setGameFilter] = useState('all');
-  const [regionFilter, setRegionFilter] = useState('all');
-  const [stakeFilter, setStakeFilter] = useState('all');
+export function OpenLobbies({
+  onNavigate,
+  showSeeAll = false,
+}: OpenLobbiesProps) {
+  const [gameFilter, setGameFilter] = useState("all");
+  const [regionFilter, setRegionFilter] = useState("all");
+  const [stakeFilter, setStakeFilter] = useState("all");
 
   const lobbies: Lobby[] = [
     {
-      id: '1',
-      game: 'Valorant',
-      gameImage: 'https://images.unsplash.com/photo-1622349851524-890cc3641b87?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmcHMlMjBnYW1pbmclMjB2YWxvcmFudHxlbnwxfHx8fDE3NTkwODYwOTZ8MA&ixlib=rb-4.1.0&q=80&w=400',
-      mode: 'Ranked 1v1',
+      id: "1",
+      game: "Valorant",
+      gameImage:
+        "https://images.unsplash.com/photo-1622349851524-890cc3641b87?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmcHMlMjBnYW1pbmclMjB2YWxvcmFudHxlbnwxfHx8fDE3NTkwODYwOTZ8MA&ixlib=rb-4.1.0&q=80&w=400",
+      mode: "Ranked 1v1",
       stake: 50,
-      region: 'NA East',
+      region: "NA East",
       trustScore: 98.5,
-      timeLeft: '4m 23s',
+      timeLeft: "4m 23s",
       players: { current: 1, max: 2 },
-      host: 'ProGamer23',
-      rules: ['Best of 3', 'No smurfing', 'Ascendant+']
+      host: "ProGamer23",
+      rules: ["Best of 3", "No smurfing", "Ascendant+"],
     },
     {
-      id: '2',
-      game: 'CS2',
-      gameImage: 'https://images.unsplash.com/photo-1758179762049-615d9aac58ea?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxlc3BvcnRzJTIwZ2FtaW5nJTIwdG91cm5hbWVudHxlbnwxfHx8fDE3NTkwODYwOTB8MA&ixlib=rb-4.1.0&q=80&w=400',
-      mode: '5v5 Competitive',
+      id: "2",
+      game: "CS2",
+      gameImage:
+        "https://images.unsplash.com/photo-1758179762049-615d9aac58ea?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxlc3BvcnRzJTIwZ2FtaW5nJTIwdG91cm5hbWVudHxlbnwxfHx8fDE3NTkwODYwOTB8MA&ixlib=rb-4.1.0&q=80&w=400",
+      mode: "5v5 Competitive",
       stake: 200,
-      region: 'EU West',
+      region: "EU West",
       trustScore: 94.2,
-      timeLeft: '12m 15s',
+      timeLeft: "12m 15s",
       players: { current: 8, max: 10 },
-      host: 'TeamAlpha',
-      rules: ['MR12', 'All pick', 'Global Elite+']
+      host: "TeamAlpha",
+      rules: ["MR12", "All pick", "Global Elite+"],
     },
     {
-      id: '3',
-      game: 'League of Legends',
-      gameImage: 'https://images.unsplash.com/photo-1614738499301-d2eed34f7b11?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2JhJTIwZ2FtaW5nJTIwbGVhZ3VlfGVufDF8fHx8MTc1OTA4NjEwMHww&ixlib=rb-4.1.0&q=80&w=400',
-      mode: 'Ranked Solo',
+      id: "3",
+      game: "League of Legends",
+      gameImage:
+        "https://images.unsplash.com/photo-1614738499301-d2eed34f7b11?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2JhJTIwZ2FtaW5nJTIwbGVhZ3VlfGVufDF8fHx8MTc1OTA4NjEwMHww&ixlib=rb-4.1.0&q=80&w=400",
+      mode: "Ranked Solo",
       stake: 25,
-      region: 'NA West',
+      region: "NA West",
       trustScore: 96.8,
-      timeLeft: '2m 47s',
+      timeLeft: "2m 47s",
       players: { current: 1, max: 2 },
-      host: 'MidLaneKing',
-      rules: ['Best of 1', 'Draft pick', 'Diamond+']
+      host: "MidLaneKing",
+      rules: ["Best of 1", "Draft pick", "Diamond+"],
     },
     {
-      id: '4',
-      game: 'Valorant',
-      gameImage: 'https://images.unsplash.com/photo-1622349851524-890cc3641b87?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmcHMlMjBnYW1pbmclMjB2YWxvcmFudHxlbnwxfHx8fDE3NTkwODYwOTZ8MA&ixlib=rb-4.1.0&q=80&w=400',
-      mode: 'Team 5v5',
+      id: "4",
+      game: "Valorant",
+      gameImage:
+        "https://images.unsplash.com/photo-1622349851524-890cc3641b87?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmcHMlMjBnYW1pbmclMjB2YWxvcmFudHxlbnwxfHx8fDE3NTkwODYwOTZ8MA&ixlib=rb-4.1.0&q=80&w=400",
+      mode: "Team 5v5",
       stake: 100,
-      region: 'Asia',
+      region: "Asia",
       trustScore: 99.1,
-      timeLeft: '8m 52s',
+      timeLeft: "8m 52s",
       players: { current: 7, max: 10 },
-      host: 'EsportsClub',
-      rules: ['Best of 3', 'Custom map pool', 'Immortal+']
+      host: "EsportsClub",
+      rules: ["Best of 3", "Custom map pool", "Immortal+"],
     },
     {
-      id: '5',
-      game: 'CS2',
-      gameImage: 'https://images.unsplash.com/photo-1758179762049-615d9aac58ea?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxlc3BvcnRzJTIwZ2FtaW5nJTIwdG91cm5hbWVudHxlbnwxfHx8fDE3NTkwODYwOTB8MA&ixlib=rb-4.1.0&q=80&w=400',
-      mode: 'Aim Duel',
+      id: "5",
+      game: "CS2",
+      gameImage:
+        "https://images.unsplash.com/photo-1758179762049-615d9aac58ea?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxlc3BvcnRzJTIwZ2FtaW5nJTIwdG91cm5hbWVudHxlbnwxfHx8fDE3NTkwODYwOTB8MA&ixlib=rb-4.1.0&q=80&w=400",
+      mode: "Aim Duel",
       stake: 15,
-      region: 'EU Central',
+      region: "EU Central",
       trustScore: 92.3,
-      timeLeft: '6m 31s',
+      timeLeft: "6m 31s",
       players: { current: 1, max: 2 },
-      host: 'AimGod',
-      rules: ['First to 16', 'Aim_map2', 'Any rank']
+      host: "AimGod",
+      rules: ["First to 16", "Aim_map2", "Any rank"],
     },
     {
-      id: '6',
-      game: 'League of Legends',
-      gameImage: 'https://images.unsplash.com/photo-1614738499301-d2eed34f7b11?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2JhJTIwZ2FtaW5nJTIwbGVhZ3VlfGVufDF8fHx8MTc1OTA4NjEwMHww&ixlib=rb-4.1.0&q=80&w=400',
-      mode: 'ARAM',
+      id: "6",
+      game: "League of Legends",
+      gameImage:
+        "https://images.unsplash.com/photo-1614738499301-d2eed34f7b11?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2JhJTIwZ2FtaW5nJTIwbGVhZ3VlfGVufDF8fHx8MTc1OTA4NjEwMHww&ixlib=rb-4.1.0&q=80&w=400",
+      mode: "ARAM",
       stake: 10,
-      region: 'NA East',
+      region: "NA East",
       trustScore: 89.7,
-      timeLeft: '14m 05s',
+      timeLeft: "14m 05s",
       players: { current: 6, max: 10 },
-      host: 'ARAMChamp',
-      rules: ['Best of 1', 'Random champs', 'Any rank']
-    }
+      host: "ARAMChamp",
+      rules: ["Best of 1", "Random champs", "Any rank"],
+    },
   ];
 
   return (
@@ -117,13 +140,17 @@ export function OpenLobbies({ onNavigate, showSeeAll = false }: OpenLobbiesProps
       {showSeeAll && (
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
           <div>
-            <h2 className="text-xl md:text-2xl font-semibold text-foreground">Open Lobbies</h2>
-            <p className="text-sm md:text-base text-muted-foreground">Join live matches with active players</p>
+            <h2 className="text-xl md:text-2xl font-semibold text-foreground">
+              Open Lobbies
+            </h2>
+            <p className="text-sm md:text-base text-muted-foreground">
+              Join live matches with active players
+            </p>
           </div>
           <Button
             variant="outline"
             className="border-primary/50 text-primary hover:bg-primary/10 hover:scale-105 transition-all duration-200 self-end sm:self-auto"
-            onClick={() => onNavigate?.('lobbies')}
+            onClick={() => onNavigate?.("lobbies")}
           >
             See All
             <ArrowRight className="h-4 w-4 ml-2" />
@@ -181,10 +208,14 @@ export function OpenLobbies({ onNavigate, showSeeAll = false }: OpenLobbiesProps
       {/* Lobbies Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         {lobbies.map((lobby, index) => (
-          <Card key={lobby.id} className="group hover:border-primary/50 transition-all duration-300 hover:shadow-lg hover:shadow-primary/10 flex flex-col hover-lift animate-fadeInUp" style={{ animationDelay: `${index * 0.1}s` }}>
+          <Card
+            key={lobby.id}
+            className="group hover:border-primary/50 transition-all duration-300 hover:shadow-lg hover:shadow-primary/10 flex flex-col hover-lift animate-fadeInUp"
+            style={{ animationDelay: `${index * 0.1}s` }}
+          >
             <CardHeader className="p-0">
               <div className="relative">
-                <ImageWithFallback 
+                <ImageWithFallback
                   src={lobby.gameImage}
                   alt={lobby.game}
                   className="w-full h-32 object-cover rounded-t-lg"
@@ -204,7 +235,9 @@ export function OpenLobbies({ onNavigate, showSeeAll = false }: OpenLobbiesProps
             </CardHeader>
             <CardContent className="p-3 sm:p-4 space-y-2 sm:space-y-3 flex flex-col flex-1">
               <div className="flex items-center justify-between">
-                <h3 className="font-medium text-sm sm:text-base text-foreground truncate pr-2">{lobby.mode}</h3>
+                <h3 className="font-medium text-sm sm:text-base text-foreground truncate pr-2">
+                  {lobby.mode}
+                </h3>
                 <div className="flex items-center space-x-1 text-xs sm:text-sm text-muted-foreground shrink-0">
                   <Clock className="h-3 w-3" />
                   <span>{lobby.timeLeft}</span>
@@ -214,7 +247,9 @@ export function OpenLobbies({ onNavigate, showSeeAll = false }: OpenLobbiesProps
               <div className="flex items-center justify-between text-xs sm:text-sm">
                 <div className="flex items-center space-x-1 text-muted-foreground">
                   <Users className="h-3 w-3" />
-                  <span>{lobby.players.current}/{lobby.players.max}</span>
+                  <span>
+                    {lobby.players.current}/{lobby.players.max}
+                  </span>
                 </div>
                 <div className="flex items-center space-x-1 text-muted-foreground">
                   <MapPin className="h-3 w-3" />
@@ -223,10 +258,14 @@ export function OpenLobbies({ onNavigate, showSeeAll = false }: OpenLobbiesProps
               </div>
 
               <div className="flex items-center justify-between text-xs sm:text-sm">
-                <span className="text-muted-foreground truncate pr-2">Host: {lobby.host}</span>
+                <span className="text-muted-foreground truncate pr-2">
+                  Host: {lobby.host}
+                </span>
                 <div className="flex items-center space-x-1 shrink-0">
                   <Star className="h-3 w-3 text-amber-400" />
-                  <span className="text-amber-400 font-medium">{lobby.trustScore}%</span>
+                  <span className="text-amber-400 font-medium">
+                    {lobby.trustScore}%
+                  </span>
                 </div>
               </div>
 
@@ -243,9 +282,9 @@ export function OpenLobbies({ onNavigate, showSeeAll = false }: OpenLobbiesProps
                 )}
               </div>
 
-              <Button 
+              <Button
                 className="w-full bg-primary hover:brightness-110 hover:scale-105 text-primary-foreground group-hover:shadow-md group-hover:shadow-primary/30 transition-all duration-300 mt-auto"
-                onClick={() => onNavigate?.('join-match')}
+                onClick={() => onNavigate?.("join-match")}
               >
                 Join Match
               </Button>

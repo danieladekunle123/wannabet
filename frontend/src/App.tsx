@@ -1,20 +1,19 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { ThemeProvider } from "./components/ThemeContext";
 import { Navigation } from "./components/Navigation";
 import { Sidebar } from "./components/Sidebar";
 import { BottomNav } from "./components/BottomNav";
 import { Footer } from "./components/Footer";
 import { Hero } from "./components/Hero";
-import { OpenLobbies } from "./components/OpenLobbies";
 import { Tournaments } from "./components/Tournaments";
 import { Scrims } from "./components/Scrims";
 import { Lobbies } from "./components/Lobbies";
-import { SocialHubs } from "./components/SocialHubs";
+import { TeamsPage } from "./components/TeamsPage";
 import { Wagers } from "./components/Wagers";
 import { Messages } from "./components/Messages";
 import { Settings } from "./components/Settings";
 import { Leaderboards } from "./components/Leaderboards";
-import { ActivityRail } from "./components/ActivityRail";
 import { PlayerStats } from "./components/PlayerStats";
 import { CreateMatch } from "./components/CreateMatch";
 import { Login } from "./components/Login";
@@ -38,6 +37,7 @@ import { TeamPage } from "./components/TeamPage";
 import { TeamSettings } from "./components/TeamSettings";
 import { TeamInvites } from "./components/TeamInvites";
 import { HubPage } from "./components/HubPage";
+import { TeamDetailPage } from "./components/TeamDetailPage";
 
 import { NotificationSettings } from "./components/NotificationSettings";
 import { PrivacySecurity } from "./components/PrivacySecurity";
@@ -48,21 +48,106 @@ import { ReportBug } from "./components/ReportBug";
 import { ContactSupport } from "./components/ContactSupport";
 import { DeactivateAccount } from "./components/DeactivateAccount";
 import { DeleteAccount } from "./components/DeleteAccount";
+import { TermsOfService } from "./components/TermsOfService";
+import { PrivacyPolicy } from "./components/PrivacyPolicy";
 import { Onboarding } from "./components/Onboarding";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Badge } from "./components/ui/badge";
 import { Card, CardContent } from "./components/ui/card";
-import { Trophy, Users, Star, Flame, Clock } from "lucide-react";
+import { Star, Flame } from "lucide-react";
 import { AuthProvider } from "./components/AuthContext";
 import { useAuth } from "./components/AuthContext";
 import { Admin } from "./components/Admin";
 import { Moderator } from "./components/Moderator";
 import { FriendsList } from "./components/FriendsList";
+import { TrendingEsportsMatches } from "./components/TrendingEsportsMatches";
+import { ActivityRail } from "./components/ActivityRail";
+import { MyEvents } from "./components/MyEvents";
+import { io, Socket } from "socket.io-client";
+import { CurrencyProvider } from "./context/CurrencyContext";
+import { PresenceProvider } from "./context/PresenceContext";
+import api from "./lib/api";
+
+const API_URL = "http://localhost:4000";
+
+// --- Navigation helpers: convert tab name <-> URL path ---
+function tabToPath(tab: string, query?: string): string {
+  if (tab === "home") return "/";
+  if (tab === "my-profile") return "/profile";
+  if (tab === "my-events" || tab === "view-match") return "/my-events";
+  if (tab === "wallet-escrow") return "/wallet";
+  if (tab === "deposit-funds") return "/wallet/deposit";
+  if (tab === "withdraw-funds") return "/wallet/withdraw";
+  if (tab === "account-settings") return "/settings/account";
+  if (tab === "notifications-preferences") return "/settings/notifications";
+  if (tab === "privacy-security") return "/settings/privacy";
+  if (tab === "keyboard-shortcuts") return "/settings/shortcuts";
+  if (tab === "subscriptions-credits") return "/subscriptions";
+  if (tab === "help-center") return "/help";
+  if (tab === "team-page") return "/my-team";
+  if (tab === "search-results")
+    return query ? `/search?q=${encodeURIComponent(query)}` : "/search";
+  if (tab === "deactivate-account") return "/settings/deactivate";
+  if (tab === "delete-account") return "/settings/delete";
+
+  if (tab.startsWith("view-match-"))
+    return `/view-match/${tab.replace("view-match-", "")}`;
+  if (tab.startsWith("profile-"))
+    return `/profile/${tab.replace("profile-", "")}`;
+  if (tab.startsWith("team-detail-"))
+    return `/team-detail/${tab.replace("team-detail-", "")}`;
+  if (tab.startsWith("hub-")) return `/hub/${tab.replace("hub-", "")}`;
+  if (tab.startsWith("request-match:"))
+    return `/request-match/${tab.slice("request-match:".length)}`;
+  if (
+    tab.startsWith("team-") &&
+    !["team-page", "team-settings", "team-invites"].includes(tab)
+  ) {
+    return `/team/${tab.replace("team-", "")}`;
+  }
+
+  return `/${tab}`;
+}
+
+function pathToTab(pathname: string): string {
+  if (pathname === "/" || pathname === "") return "home";
+  if (pathname === "/profile") return "my-profile";
+  if (pathname === "/wallet") return "wallet-escrow";
+  if (pathname === "/wallet/deposit") return "deposit-funds";
+  if (pathname === "/wallet/withdraw") return "withdraw-funds";
+  if (pathname === "/settings/account") return "account-settings";
+  if (pathname === "/settings/notifications")
+    return "notifications-preferences";
+  if (pathname === "/settings/privacy") return "privacy-security";
+  if (pathname === "/settings/shortcuts") return "keyboard-shortcuts";
+  if (pathname === "/settings/deactivate") return "deactivate-account";
+  if (pathname === "/settings/delete") return "delete-account";
+  if (pathname === "/subscriptions") return "subscriptions-credits";
+  if (pathname === "/help") return "help-center";
+  if (pathname === "/my-team") return "team-page";
+  if (pathname === "/search") return "search-results";
+
+  const m1 = pathname.match(/^\/view-match\/(.+)$/);
+  if (m1) return `view-match-${m1[1]}`;
+  const m2 = pathname.match(/^\/profile\/(.+)$/);
+  if (m2) return `profile-${m2[1]}`;
+  const m3 = pathname.match(/^\/team-detail\/(.+)$/);
+  if (m3) return `team-detail-${m3[1]}`;
+  const m4 = pathname.match(/^\/team\/(.+)$/);
+  if (m4) return `team-${m4[1]}`;
+  const m5 = pathname.match(/^\/hub\/(.+)$/);
+  if (m5) return `hub-${m5[1]}`;
+  const m6 = pathname.match(/^\/request-match\/(.+)$/);
+  if (m6) return `request-match:${m6[1]}`;
+
+  return pathname.slice(1) || "home";
+}
 
 function AppContent() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const currentTab = pathToTab(location.pathname);
+
   const AUTH_TRANSITION_MS = 340;
-  const [activeTab, setActiveTab] = useState("home");
-  const [contentTab, setContentTab] = useState("lobbies");
   const [authView, setAuthView] = useState<"login" | "signup">("signup");
   const [renderedAuthView, setRenderedAuthView] = useState<"login" | "signup">(
     "signup",
@@ -71,19 +156,65 @@ function AppContent() {
     useState("auth-view-enter");
   const [hideSidebar, setHideSidebar] = useState(false);
   const [messagesKey, setMessagesKey] = useState(0);
+  const [messageUnreadCount, setMessageUnreadCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [initialConversationId, setInitialConversationId] = useState<
     string | undefined
   >(undefined);
+  const [featuredMatch, setFeaturedMatch] = useState<{
+    id: string;
+    game: string;
+    stake: number;
+    status: string;
+    createdAt: string;
+    host: { username: string };
+  } | null>(null);
+  const [topEarners, setTopEarners] = useState<
+    {
+      rank: number;
+      userId: string;
+      username: string;
+      earningsCents: number;
+      trustScore: number;
+    }[]
+  >([]);
   const authTransitionTimerRef = React.useRef<number | null>(null);
 
-  const { user, isAuthenticated, logout, completeOnboarding } = useAuth();
+  const {
+    user,
+    token,
+    isAuthenticated,
+    logout,
+    completeOnboarding,
+    refreshUser,
+  } = useAuth();
 
-  // map URL pathname to activeTab on initial load
-  React.useEffect(() => {
-    const path = window.location.pathname.toLowerCase();
-    if (path === "/admin") setActiveTab("admin");
-    if (path === "/moderator") setActiveTab("moderator");
+  // Fetch top 5 earners for the home leaderboard preview
+  useEffect(() => {
+    let mounted = true;
+    api
+      .getLeaderboardEarnings()
+      .then((data: any) => {
+        if (mounted) setTopEarners((data.entries || []).slice(0, 5));
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Fetch most popular open match for the featured banner
+  useEffect(() => {
+    let mounted = true;
+    fetch(`${API_URL}/matches/featured`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (mounted) setFeaturedMatch(data.match ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Scroll reset
@@ -93,10 +224,10 @@ function AppContent() {
     const mainContent = document.querySelector("main");
     if (mainContent) mainContent.scrollTo(0, 0);
 
-    if (activeTab === "messages") {
+    if (location.pathname === "/messages") {
       setMessagesKey((prev) => prev + 1);
     }
-  }, [activeTab]);
+  }, [location.pathname]);
 
   // Sidebar hide on scroll
   React.useEffect(() => {
@@ -113,8 +244,17 @@ function AppContent() {
       await completeOnboarding();
     } catch (err) {
       console.error(err);
+      // If the PATCH failed but the user still exists, try to refresh so we get
+      // the real hasCompletedOnboarding value. If it's still false, mark the
+      // user as onboarded locally so they are never permanently stuck.
+      try {
+        await refreshUser();
+      } catch {
+        // refreshUser threw — user was logged out by AuthContext, nothing more to do.
+        return;
+      }
     }
-    setActiveTab("home");
+    navigate("/");
   };
 
   const handleOnboardingSkip = handleOnboardingComplete;
@@ -123,9 +263,8 @@ function AppContent() {
     logout();
     setAuthView("signup");
     setRenderedAuthView("signup");
-    setActiveTab("home");
+    navigate("/");
   };
-
   const switchAuthView = (nextView: "login" | "signup") => {
     if (nextView === renderedAuthView) return;
 
@@ -150,33 +289,113 @@ function AppContent() {
     };
   }, []);
 
-  const handleNavigate = (tab: string, query?: string) => {
-    setActiveTab(tab);
-    if (query) {
-      setSearchQuery(query);
-      if (tab === "messages") setInitialConversationId(query);
+  const refreshMessageUnreadCount = React.useCallback(async () => {
+    if (!token) {
+      setMessageUnreadCount(0);
+      return;
     }
-    // update browser url for admin/moderator pages
-    if (tab === "admin") window.history.pushState({}, "", "/admin");
-    if (tab === "moderator") window.history.pushState({}, "", "/moderator");
+
+    try {
+      const res = await fetch(`${API_URL}/messages/conversations`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const conversations = Array.isArray(data?.data) ? data.data : [];
+      const totalUnread = conversations.reduce(
+        (sum: number, c: any) => sum + (Number(c?.unread) || 0),
+        0,
+      );
+      setMessageUnreadCount(totalUnread);
+    } catch {
+      // Keep the last badge value when background refresh fails.
+    }
+  }, [token]);
+
+  React.useEffect(() => {
+    if (!isAuthenticated || !token) {
+      setMessageUnreadCount(0);
+      return;
+    }
+
+    void refreshMessageUnreadCount();
+
+    const intervalId = window.setInterval(() => {
+      void refreshMessageUnreadCount();
+    }, 15000);
+
+    const onFocus = () => {
+      void refreshMessageUnreadCount();
+    };
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [isAuthenticated, token, refreshMessageUnreadCount]);
+
+  React.useEffect(() => {
+    if (!isAuthenticated || !token) return;
+
+    const socket: Socket = io(API_URL, {
+      auth: { token },
+      withCredentials: true,
+    });
+
+    const syncUnread = () => {
+      void refreshMessageUnreadCount();
+    };
+
+    socket.on("message", syncUnread);
+    socket.on("message:read", syncUnread);
+    socket.on("message:update", syncUnread);
+    socket.on("message:delete", syncUnread);
+
+    return () => {
+      socket.off("message", syncUnread);
+      socket.off("message:read", syncUnread);
+      socket.off("message:update", syncUnread);
+      socket.off("message:delete", syncUnread);
+      socket.disconnect();
+    };
+  }, [isAuthenticated, token, refreshMessageUnreadCount]);
+
+  const handleUnreadCountChange = React.useCallback((count: number) => {
+    setMessageUnreadCount(count);
+  }, []);
+
+  const handleNavigate = (tab: string, query?: string) => {
+    if (query) {
+      if (tab === "messages") setInitialConversationId(query);
+      if (tab === "search-results") setSearchQuery(query);
+    }
+    navigate(tabToPath(tab, tab === "search-results" ? query : undefined));
   };
 
   if (!isAuthenticated) {
+    if (currentTab === "terms-of-service") {
+      return <TermsOfService onNavigate={() => navigate("/")} />;
+    }
+    if (currentTab === "privacy-policy") {
+      return <PrivacyPolicy onNavigate={() => navigate("/")} />;
+    }
     return (
       <div className={authTransitionClass}>
         {renderedAuthView === "login" ? (
           <Login
-            onNavigate={(tab) => setActiveTab(tab)}
+            onNavigate={(tab) => handleNavigate(tab)}
             onSwitchToSignup={() => switchAuthView("signup")}
           />
         ) : (
           <Signup
             onNavigate={(tab) => {
               if (tab === "onboarding") {
-                setActiveTab("home");
+                navigate("/");
                 return;
               }
-              setActiveTab(tab);
+              handleNavigate(tab);
             }}
             onSwitchToLogin={() => switchAuthView("login")}
           />
@@ -199,12 +418,12 @@ function AppContent() {
   if (!user) {
     return authView === "login" ? (
       <Login
-        onNavigate={() => setActiveTab("home")}
+        onNavigate={() => navigate("/")}
         onSwitchToSignup={() => setAuthView("signup")}
       />
     ) : (
       <Signup
-        onNavigate={() => setActiveTab("home")}
+        onNavigate={() => navigate("/")}
         onSwitchToLogin={() => setAuthView("login")}
       />
     );
@@ -212,8 +431,8 @@ function AppContent() {
 
   return (
     <div
-      className={`min-h-screen bg-background text-foreground ${
-        activeTab === "messages" ? "overflow-hidden h-screen" : ""
+      className={`min-h-screen bg-background text-foreground flex flex-col ${
+        currentTab === "messages" ? "overflow-hidden h-screen" : ""
       }`}
     >
       {/* Animated Background Gradients & Graphics */}
@@ -235,14 +454,14 @@ function AppContent() {
       <div className="grid-overlay" />
 
       {/* Content Layer */}
-      <div className="content-layer">
+      <div className="content-layer flex-1 flex flex-col min-h-0">
         {/* Hide navigation on mobile when viewing messages */}
-        <div className={activeTab === "messages" ? "hidden lg:block" : ""}>
+        <div className={currentTab === "messages" ? "hidden lg:block" : ""}>
           <Navigation onNavigate={handleNavigate} onSignOut={handleSignOut} />
         </div>
 
         <div
-          className={`flex relative ${activeTab === "messages" ? "h-full overflow-hidden" : ""}`}
+          className={`flex relative flex-1 min-h-0 ${currentTab === "messages" ? "h-full overflow-hidden" : ""}`}
         >
           {/* Left Sidebar - Hidden on mobile and when scrolled */}
           <div
@@ -257,137 +476,84 @@ function AppContent() {
           >
             <div className="w-64 shrink-0">
               <Sidebar
-                activeTab={activeTab}
-                onTabChange={setActiveTab}
+                activeTab={currentTab}
+                onTabChange={(tab) => handleNavigate(tab)}
                 onSignOut={handleSignOut}
+                messageCount={messageUnreadCount}
               />
             </div>
           </div>
 
           {/* Main Content */}
           <main
-            className={`flex-1 min-w-0 content-expand ${
-              activeTab === "messages"
+            className={`flex-1 min-w-0 content-expand flex flex-col ${
+              currentTab === "messages"
                 ? "p-0"
                 : "p-3 sm:p-4 md:p-6 pb-20 lg:pb-6"
             }`}
           >
             <div
-              className={activeTab === "messages" ? "" : "mx-auto max-w-7xl"}
+              className={
+                currentTab === "messages"
+                  ? "flex-1"
+                  : "mx-auto max-w-7xl flex-1 w-full"
+              }
             >
-              {/* Render different pages based on activeTab */}
-              {activeTab === "home" && (
+              {/* Render different pages based on currentTab */}
+              {currentTab === "home" && (
                 <div className="page-transition">
                   {/* Hero Section */}
-                  <Hero onNavigate={setActiveTab} />
+                  <Hero onNavigate={handleNavigate} />
 
                   {/* Featured Match Banner */}
-                  <Card className="mb-6 md:mb-8 border-primary/30 bg-gradient-to-r from-primary/5 to-transparent animate-fadeInUp animate-delay-100 hover-lift transition-all duration-300">
-                    <CardContent className="p-3 sm:p-4">
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
-                        <div className="flex items-start sm:items-center space-x-3 sm:space-x-4 flex-1 min-w-0">
-                          <Badge className="bg-primary text-primary-foreground shrink-0 animate-pulse">
-                            <Flame className="h-3 w-3 mr-1" />
-                            <span className="hidden sm:inline">
-                              Featured Match
-                            </span>
-                            <span className="sm:hidden">Live</span>
-                          </Badge>
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium text-foreground text-sm sm:text-base truncate">
-                              Team Phoenix vs Alpha Squad - CS2 Finals
-                            </div>
-                            <div className="text-xs sm:text-sm text-muted-foreground">
-                              $2,500 prize pool • Starting in 45 minutes
+                  {featuredMatch && (
+                    <Card
+                      className="mb-6 md:mb-8 border-primary/30 bg-gradient-to-r from-primary/5 to-transparent animate-fadeInUp animate-delay-100 hover-lift transition-all duration-300 cursor-pointer"
+                      onClick={() =>
+                        handleNavigate(`view-match-${featuredMatch.id}`)
+                      }
+                    >
+                      <CardContent className="p-3 sm:p-4">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+                          <div className="flex items-start sm:items-center space-x-3 sm:space-x-4 flex-1 min-w-0">
+                            <Badge className="bg-primary text-primary-foreground shrink-0 animate-pulse">
+                              <Flame className="h-3 w-3 mr-1" />
+                              <span className="hidden sm:inline">
+                                Featured Match
+                              </span>
+                              <span className="sm:hidden">Hot</span>
+                            </Badge>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-medium text-foreground text-sm sm:text-base truncate">
+                                {featuredMatch.game} — hosted by{" "}
+                                {featuredMatch.host.username}
+                              </div>
+                              <div className="text-xs sm:text-sm text-muted-foreground">
+                                {featuredMatch.stake > 0
+                                  ? `$${(featuredMatch.stake / 100).toFixed(2)} wager • Open to join`
+                                  : "Free scrim • Open to join"}
+                              </div>
                             </div>
                           </div>
+                          <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+                            <Badge className="bg-emerald-600 text-white text-xs">
+                              {featuredMatch.status}
+                            </Badge>
+                            {featuredMatch.stake > 0 && (
+                              <Badge className="bg-amber-600 text-white text-xs">
+                                ${(featuredMatch.stake / 100).toFixed(2)}
+                              </Badge>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
-                          <Badge className="bg-emerald-600 text-white text-xs">
-                            <Users className="h-3 w-3 mr-1" />
-                            2.4k
-                          </Badge>
-                          <Badge className="bg-amber-600 text-white text-xs">
-                            <Clock className="h-3 w-3 mr-1" />
-                            45m
-                          </Badge>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                      </CardContent>
+                    </Card>
+                  )}
 
-                  {/* Tabbed Content Area */}
+                  {/* Home Content Area */}
                   <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
                     <div className="flex-1">
-                      <Tabs
-                        value={contentTab}
-                        onValueChange={setContentTab}
-                        className="space-y-4 md:space-y-6"
-                      >
-                        <TabsList className="grid w-full grid-cols-3 bg-muted/50">
-                          <TabsTrigger
-                            value="lobbies"
-                            className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm"
-                          >
-                            <span className="hidden sm:inline">
-                              Open Lobbies
-                            </span>
-                            <span className="sm:hidden">Lobbies</span>
-                            <Badge className="ml-1 sm:ml-2 bg-emerald-600 text-white text-xs">
-                              143
-                            </Badge>
-                          </TabsTrigger>
-                          <TabsTrigger
-                            value="tournaments"
-                            className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm"
-                          >
-                            <Trophy className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-2" />
-                            <span className="hidden sm:inline">
-                              Tournaments
-                            </span>
-                            <Badge className="ml-1 sm:ml-2 bg-amber-600 text-white text-xs">
-                              NEW
-                            </Badge>
-                          </TabsTrigger>
-                          <TabsTrigger
-                            value="scrims"
-                            className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm"
-                          >
-                            <span className="hidden sm:inline">Scrims</span>
-                            <span className="sm:hidden">Scrims</span>
-                            <Badge className="ml-1 sm:ml-2 bg-blue-600 text-white text-xs">
-                              24
-                            </Badge>
-                          </TabsTrigger>
-                        </TabsList>
-
-                        <TabsContent
-                          value="lobbies"
-                          className="space-y-4 md:space-y-6"
-                        >
-                          <OpenLobbies
-                            onNavigate={setActiveTab}
-                            showSeeAll={true}
-                          />
-                        </TabsContent>
-
-                        <TabsContent
-                          value="tournaments"
-                          className="space-y-4 md:space-y-6"
-                        >
-                          <Tournaments
-                            onNavigate={setActiveTab}
-                            showSeeAll={true}
-                          />
-                        </TabsContent>
-
-                        <TabsContent
-                          value="scrims"
-                          className="space-y-4 md:space-y-6"
-                        >
-                          <Scrims onNavigate={setActiveTab} showSeeAll={true} />
-                        </TabsContent>
-                      </Tabs>
+                      <TrendingEsportsMatches onNavigate={handleNavigate} />
 
                       {/* Global Leaderboard Preview */}
                       <Card className="mt-6 md:mt-8 animate-fadeInUp animate-delay-300 hover-lift transition-all duration-300">
@@ -401,115 +567,87 @@ function AppContent() {
                             </div>
                             <Badge
                               className="bg-primary text-primary-foreground cursor-pointer hover:bg-primary/90"
-                              onClick={() => setActiveTab("leaderboards")}
+                              onClick={() => handleNavigate("leaderboards")}
                             >
                               View Full
                             </Badge>
                           </div>
 
                           <div className="space-y-3">
-                            {[
-                              {
-                                rank: 1,
-                                name: "EsportsLegend",
-                                wins: 847,
-                                mmr: 3250,
-                                earnings: 12500,
-                                trust: 99.8,
-                                userId: "1",
-                              },
-                              {
-                                rank: 2,
-                                name: "ProGamerElite",
-                                wins: 723,
-                                mmr: 3180,
-                                earnings: 9800,
-                                trust: 99.5,
-                                userId: "2",
-                              },
-                              {
-                                rank: 3,
-                                name: "SkillMasterX",
-                                wins: 692,
-                                mmr: 3150,
-                                earnings: 8900,
-                                trust: 98.9,
-                                userId: "3",
-                              },
-                              {
-                                rank: 4,
-                                name: "TeamCaptain",
-                                wins: 645,
-                                mmr: 3100,
-                                earnings: 7650,
-                                trust: 99.2,
-                                userId: "4",
-                              },
-                              {
-                                rank: 5,
-                                name: "YouAreHere",
-                                wins: 127,
-                                mmr: 2450,
-                                earnings: 1240,
-                                trust: 98.5,
-                                highlight: true,
-                              },
-                            ].map((player, index) => (
-                              <div
-                                key={player.rank}
-                                className={`flex items-center justify-between p-3 rounded-lg transition-all duration-300 hover:scale-105 hover:shadow-md cursor-pointer ${
-                                  player.highlight
-                                    ? "bg-primary/10 border border-primary/30 animate-fadeInLeft"
-                                    : "bg-muted/30 hover:bg-muted/50"
-                                }`}
-                                style={{ animationDelay: `${index * 0.1}s` }}
-                                onClick={() =>
-                                  player.highlight
-                                    ? setActiveTab("my-profile")
-                                    : setActiveTab(`profile-${player.userId}`)
-                                }
-                              >
-                                <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
-                                  <div
-                                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center font-medium text-xs sm:text-sm shrink-0 ${
-                                      player.rank <= 3
-                                        ? "bg-amber-600 text-white"
-                                        : player.highlight
-                                          ? "bg-primary text-primary-foreground"
-                                          : "bg-muted text-muted-foreground"
-                                    }`}
-                                  >
-                                    #{player.rank}
-                                  </div>
-                                  <div className="min-w-0 flex-1">
+                            {topEarners.length === 0 ? (
+                              <p className="text-sm text-muted-foreground text-center py-4">
+                                No earnings data yet.
+                              </p>
+                            ) : (
+                              topEarners.map((player, index) => (
+                                <div
+                                  key={player.userId}
+                                  className={`flex items-center justify-between p-3 rounded-lg transition-all duration-300 hover:scale-105 hover:shadow-md cursor-pointer ${
+                                    player.userId === user?.id
+                                      ? "bg-primary/10 border border-primary/30 animate-fadeInLeft"
+                                      : "bg-muted/30 hover:bg-muted/50"
+                                  }`}
+                                  style={{ animationDelay: `${index * 0.1}s` }}
+                                  onClick={() =>
+                                    player.userId === user?.id
+                                      ? handleNavigate("my-profile")
+                                      : handleNavigate(
+                                          `profile-${player.userId}`,
+                                        )
+                                  }
+                                >
+                                  <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
                                     <div
-                                      className={`font-medium text-sm sm:text-base truncate ${player.highlight ? "text-primary" : "text-foreground"}`}
+                                      className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center font-medium text-xs sm:text-sm shrink-0 ${
+                                        player.rank <= 3
+                                          ? "bg-amber-600 text-white"
+                                          : player.userId === user?.id
+                                            ? "bg-primary text-primary-foreground"
+                                            : "bg-muted text-muted-foreground"
+                                      }`}
                                     >
-                                      {player.name}
+                                      #{player.rank}
                                     </div>
-                                    <div className="text-xs text-muted-foreground">
-                                      {player.wins} wins • {player.mmr} MMR
+                                    <div className="min-w-0 flex-1">
+                                      <div
+                                        className={`font-medium text-sm sm:text-base truncate ${
+                                          player.userId === user?.id
+                                            ? "text-primary"
+                                            : "text-foreground"
+                                        }`}
+                                      >
+                                        {player.username}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        Trust: {player.trustScore.toFixed(1)}%
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <div className="text-xs sm:text-sm text-emerald-400 font-medium">
+                                      $
+                                      {(
+                                        player.earningsCents / 100
+                                      ).toLocaleString(undefined, {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      })}
+                                    </div>
+                                    <div className="flex items-center justify-end space-x-1">
+                                      <Star className="h-3 w-3 text-amber-400" />
+                                      <span className="text-xs text-amber-400">
+                                        {player.trustScore.toFixed(1)}%
+                                      </span>
+                                      {player.trustScore > 99 && (
+                                        <Badge className="bg-emerald-600 text-white text-xs px-1">
+                                          Elite
+                                        </Badge>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
-                                <div className="text-right shrink-0">
-                                  <div className="text-xs sm:text-sm text-emerald-400 font-medium">
-                                    ${player.earnings.toLocaleString()}
-                                  </div>
-                                  <div className="flex items-center justify-end space-x-1">
-                                    <Star className="h-3 w-3 text-amber-400" />
-                                    <span className="text-xs text-amber-400">
-                                      {player.trust}%
-                                    </span>
-                                    {player.trust > 99 && (
-                                      <Badge className="bg-emerald-600 text-white text-xs px-1">
-                                        Elite
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
+                              ))
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -517,79 +655,95 @@ function AppContent() {
 
                     {/* Right Activity Rail - Hidden on mobile and tablet */}
                     <div className="hidden xl:block animate-fadeInRight">
-                      <ActivityRail onNavigate={setActiveTab} />
+                      <ActivityRail onNavigate={handleNavigate} />
                     </div>
                   </div>
                 </div>
               )}
-              {activeTab === "friends" && (
+              {currentTab === "friends" && (
                 <div className="page-transition">
                   <FriendsList onNavigate={handleNavigate} />
                 </div>
               )}
 
-              {activeTab === "create-match" && (
+              {currentTab === "create-match" && (
                 <div className="page-transition">
-                  <CreateMatch onNavigate={setActiveTab} />
+                  <CreateMatch onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "create-wager" && (
+              {currentTab === "create-wager" && (
                 <div className="page-transition">
-                  <CreateMatch onNavigate={setActiveTab} initialTab="wager" />
+                  <CreateMatch onNavigate={handleNavigate} initialTab="wager" />
                 </div>
               )}
-              {activeTab === "create-scrim" && (
+              {currentTab === "create-scrim" && (
                 <div className="page-transition">
-                  <CreateMatch onNavigate={setActiveTab} initialTab="scrim" />
+                  <CreateMatch onNavigate={handleNavigate} initialTab="scrim" />
                 </div>
               )}
-              {activeTab === "create-tournament" && (
+              {currentTab === "create-tournament" && (
                 <div className="page-transition">
                   <CreateMatch
-                    onNavigate={setActiveTab}
+                    onNavigate={handleNavigate}
                     initialTab="tournament"
                   />
                 </div>
               )}
-              {activeTab === "create-team-hub" && (
+              {currentTab === "create-team-hub" && (
                 <div className="page-transition">
-                  <CreateTeamHub onNavigate={setActiveTab} />
+                  <CreateTeamHub onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "join-match" && (
+              {currentTab === "join-match" && (
                 <div className="page-transition">
-                  <JoinMatch onNavigate={setActiveTab} />
+                  <JoinMatch onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "join-hub" && (
+              {currentTab === "join-hub" && (
                 <div className="page-transition">
-                  <JoinHub onNavigate={setActiveTab} />
+                  <JoinHub onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "view-match" && (
+              {currentTab === "view-match" && (
                 <div className="page-transition">
-                  <ViewMatch onNavigate={setActiveTab} />
+                  <MyEvents onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab.startsWith("view-match-") && (
+              {currentTab.startsWith("view-match-") && (
                 <div className="page-transition">
                   <ViewMatch
-                    onNavigate={setActiveTab}
-                    matchId={activeTab.replace("view-match-", "")}
+                    eventId={currentTab.replace("view-match-", "")}
+                    onBack={() => handleNavigate("my-events")}
                   />
                 </div>
               )}
-              {activeTab === "tournament-bracket" && (
+              {(currentTab === "tournament-bracket" ||
+                currentTab.startsWith("tournament-bracket-")) && (
                 <div className="page-transition">
-                  <TournamentBracket onNavigate={setActiveTab} />
+                  <TournamentBracket
+                    onNavigate={handleNavigate}
+                    tournamentId={
+                      currentTab.startsWith("tournament-bracket-")
+                        ? currentTab.replace("tournament-bracket-", "")
+                        : undefined
+                    }
+                  />
                 </div>
               )}
-              {activeTab === "tournament-schedule" && (
+              {(currentTab === "tournament-schedule" ||
+                currentTab.startsWith("tournament-schedule-")) && (
                 <div className="page-transition">
-                  <TournamentSchedule onNavigate={setActiveTab} />
+                  <TournamentSchedule
+                    onNavigate={handleNavigate}
+                    tournamentId={
+                      currentTab.startsWith("tournament-schedule-")
+                        ? currentTab.replace("tournament-schedule-", "")
+                        : undefined
+                    }
+                  />
                 </div>
               )}
-              {activeTab === "search-results" && (
+              {currentTab === "search-results" && (
                 <div className="page-transition">
                   <SearchResults
                     onNavigate={handleNavigate}
@@ -597,7 +751,7 @@ function AppContent() {
                   />
                 </div>
               )}
-              {activeTab === "my-profile" && (
+              {currentTab === "my-profile" && (
                 <div className="page-transition">
                   <PublicProfile
                     onNavigate={handleNavigate}
@@ -605,186 +759,217 @@ function AppContent() {
                   />
                 </div>
               )}
-              {activeTab.startsWith("profile-") && (
+              {currentTab.startsWith("profile-") && (
                 <div className="page-transition">
                   <PublicProfile
                     onNavigate={handleNavigate}
-                    userId={activeTab.replace("profile-", "")}
+                    userId={currentTab.replace("profile-", "")}
                   />
                 </div>
               )}
-              {activeTab === "lobbies" && (
+              {currentTab === "lobbies" && (
                 <div className="page-transition">
-                  <Lobbies onNavigate={setActiveTab} />
+                  <Lobbies onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "hubs" && (
+              {currentTab === "hubs" && (
                 <div className="page-transition">
-                  <SocialHubs onNavigate={setActiveTab} />
+                  <TeamsPage onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "wagers" && (
+              {currentTab === "wagers" && (
                 <div className="page-transition">
-                  <Wagers onNavigate={setActiveTab} />
+                  <Wagers onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "scrims" && (
+              {currentTab === "scrims" && (
                 <div className="page-transition">
-                  <Scrims onNavigate={setActiveTab} />
+                  <Scrims onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "tournaments" && (
+              {currentTab === "tournaments" && (
                 <div className="page-transition">
-                  <Tournaments onNavigate={setActiveTab} />
+                  <Tournaments onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "messages" && (
+              {currentTab === "messages" && (
                 <Messages
                   key={messagesKey}
                   initialConversationId={initialConversationId}
                   onInitialConsumed={() => setInitialConversationId(undefined)}
                   onNavigate={handleNavigate}
+                  onUnreadCountChange={handleUnreadCountChange}
                 />
               )}
-              {activeTab === "leaderboards" && (
+              {currentTab === "leaderboards" && (
                 <div className="page-transition">
                   <Leaderboards />
                 </div>
               )}
-              {activeTab === "stats" && (
+              {currentTab === "stats" && (
                 <div className="page-transition">
-                  <PlayerStats onNavigate={setActiveTab} />
+                  <PlayerStats onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "settings" && (
+              {currentTab === "my-events" && (
+                <div className="page-transition">
+                  <MyEvents onNavigate={handleNavigate} />
+                </div>
+              )}
+              {currentTab === "settings" && (
                 <div className="page-transition">
                   <Settings
-                    onNavigate={setActiveTab}
+                    onNavigate={handleNavigate}
                     onSignOut={handleSignOut}
                   />
                 </div>
               )}
-              {activeTab === "account-settings" && (
+              {currentTab === "account-settings" && (
                 <div className="page-transition">
-                  <AccountSettings onNavigate={setActiveTab} />
+                  <AccountSettings onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "wallet-escrow" && (
+              {currentTab === "wallet-escrow" && (
                 <div className="page-transition">
-                  <WalletEscrow onNavigate={setActiveTab} />
+                  <WalletEscrow onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "deposit-funds" && (
+              {currentTab === "deposit-funds" && (
                 <div className="page-transition">
-                  <DepositFunds onNavigate={setActiveTab} />
+                  <DepositFunds onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "withdraw-funds" && (
+              {currentTab === "withdraw-funds" && (
                 <div className="page-transition">
-                  <WithdrawFunds onNavigate={setActiveTab} />
+                  <WithdrawFunds onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "request-match" && (
+              {(currentTab === "request-match" ||
+                currentTab.startsWith("request-match:")) && (
                 <div className="page-transition">
-                  <RequestMatch onNavigate={setActiveTab} />
-                </div>
-              )}
-              {activeTab === "join-tournament" && (
-                <div className="page-transition">
-                  <JoinTournament onNavigate={setActiveTab} />
-                </div>
-              )}
-              {activeTab === "team-page" && (
-                <div className="page-transition">
-                  <TeamPage onNavigate={setActiveTab} isOwnTeam={true} />
-                </div>
-              )}
-              {activeTab === "team-settings" && (
-                <div className="page-transition">
-                  <TeamSettings onNavigate={setActiveTab} />
-                </div>
-              )}
-              {activeTab === "team-invites" && (
-                <div className="page-transition">
-                  <TeamInvites
-                    onNavigateToTeam={(teamId) =>
-                      setActiveTab(`team-${teamId}`)
+                  <RequestMatch
+                    onNavigate={handleNavigate}
+                    preselectedOpponent={
+                      currentTab.startsWith("request-match:")
+                        ? currentTab.slice("request-match:".length)
+                        : undefined
                     }
                   />
                 </div>
               )}
-              {activeTab.startsWith("team-") &&
+              {(currentTab === "join-tournament" ||
+                currentTab.startsWith("join-tournament-")) && (
+                <div className="page-transition">
+                  <JoinTournament
+                    onNavigate={handleNavigate}
+                    tournamentId={
+                      currentTab.startsWith("join-tournament-")
+                        ? currentTab.replace("join-tournament-", "")
+                        : undefined
+                    }
+                  />
+                </div>
+              )}
+              {currentTab === "team-page" && (
+                <div className="page-transition">
+                  <TeamPage onNavigate={handleNavigate} isOwnTeam={true} />
+                </div>
+              )}
+              {currentTab === "team-settings" && (
+                <div className="page-transition">
+                  <TeamSettings onNavigate={handleNavigate} />
+                </div>
+              )}
+              {currentTab === "team-invites" && (
+                <div className="page-transition">
+                  <TeamInvites
+                    onNavigateToTeam={(teamId) =>
+                      handleNavigate(`team-${teamId}`)
+                    }
+                  />
+                </div>
+              )}
+              {currentTab.startsWith("team-") &&
+                !currentTab.startsWith("team-detail-") &&
                 !["team-page", "team-settings", "team-invites"].includes(
-                  activeTab,
+                  currentTab,
                 ) && (
                   <div className="page-transition">
                     <TeamPage
-                      onNavigate={setActiveTab}
-                      teamId={activeTab.replace("team-", "")}
+                      onNavigate={handleNavigate}
+                      teamId={currentTab.replace("team-", "")}
                       isOwnTeam={false}
                     />
                   </div>
                 )}
-              {activeTab.startsWith("hub-") && (
+              {currentTab.startsWith("hub-") && (
                 <div className="page-transition">
                   <HubPage
-                    onNavigate={setActiveTab}
-                    hubId={activeTab.replace("hub-", "")}
+                    onNavigate={handleNavigate}
+                    hubId={currentTab.replace("hub-", "")}
                     isJoined={true}
                   />
                 </div>
               )}
-              {activeTab === "subscriptions-credits" && (
+              {currentTab.startsWith("team-detail-") && (
                 <div className="page-transition">
-                  <SubscriptionsCredits onNavigate={setActiveTab} />
+                  <TeamDetailPage
+                    teamId={currentTab.replace("team-detail-", "")}
+                    onNavigate={handleNavigate}
+                  />
                 </div>
               )}
-              {activeTab === "notifications-preferences" && (
+              {currentTab === "subscriptions-credits" && (
                 <div className="page-transition">
-                  <NotificationSettings onNavigate={setActiveTab} />
+                  <SubscriptionsCredits onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "privacy-security" && (
+              {currentTab === "notifications-preferences" && (
                 <div className="page-transition">
-                  <PrivacySecurity onNavigate={setActiveTab} />
+                  <NotificationSettings onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "keyboard-shortcuts" && (
+              {currentTab === "privacy-security" && (
                 <div className="page-transition">
-                  <KeyboardShortcuts onNavigate={setActiveTab} />
+                  <PrivacySecurity onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "language" && (
+              {currentTab === "keyboard-shortcuts" && (
                 <div className="page-transition">
-                  <Language onNavigate={setActiveTab} />
+                  <KeyboardShortcuts onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "help-center" && (
+              {currentTab === "language" && (
                 <div className="page-transition">
-                  <HelpCenter onNavigate={setActiveTab} />
+                  <Language onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "report-bug" && (
+              {currentTab === "help-center" && (
                 <div className="page-transition">
-                  <ReportBug onNavigate={setActiveTab} />
+                  <HelpCenter onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "contact-support" && (
+              {currentTab === "report-bug" && (
                 <div className="page-transition">
-                  <ContactSupport onNavigate={setActiveTab} />
+                  <ReportBug onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "deactivate-account" && (
+              {currentTab === "contact-support" && (
                 <div className="page-transition">
-                  <DeactivateAccount onNavigate={setActiveTab} />
+                  <ContactSupport onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "delete-account" && (
+              {currentTab === "deactivate-account" && (
                 <div className="page-transition">
-                  <DeleteAccount onNavigate={setActiveTab} />
+                  <DeactivateAccount onNavigate={handleNavigate} />
                 </div>
               )}
-              {activeTab === "admin" && (
+              {currentTab === "delete-account" && (
+                <div className="page-transition">
+                  <DeleteAccount onNavigate={handleNavigate} />
+                </div>
+              )}
+              {currentTab === "admin" && (
                 <div className="page-transition">
                   {user?.role === "ADMIN" ? (
                     <Admin />
@@ -802,7 +987,17 @@ function AppContent() {
                 </div>
               )}
 
-              {activeTab === "moderator" && (
+              {currentTab === "terms-of-service" && (
+                <div className="page-transition">
+                  <TermsOfService onNavigate={handleNavigate} />
+                </div>
+              )}
+              {currentTab === "privacy-policy" && (
+                <div className="page-transition">
+                  <PrivacyPolicy onNavigate={handleNavigate} />
+                </div>
+              )}
+              {currentTab === "moderator" && (
                 <div className="page-transition">
                   {user?.role === "MODERATOR" || user?.role === "ADMIN" ? (
                     <Moderator />
@@ -822,15 +1017,19 @@ function AppContent() {
             </div>
 
             {/* Footer - Hidden on Messages page */}
-            {activeTab !== "messages" && <Footer />}
+            {currentTab !== "messages" && (
+              <div className="mt-20">
+                <Footer onNavigate={handleNavigate} />
+              </div>
+            )}
           </main>
         </div>
 
         {/* Bottom Navigation - Mobile Only */}
         <BottomNav
-          activeTab={activeTab}
-          onNavigate={setActiveTab}
-          messageCount={12}
+          activeTab={currentTab}
+          onNavigate={handleNavigate}
+          messageCount={messageUnreadCount}
         />
       </div>
     </div>
@@ -841,7 +1040,11 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <AppContent />
+        <CurrencyProvider>
+          <PresenceProvider>
+            <AppContent />
+          </PresenceProvider>
+        </CurrencyProvider>
       </AuthProvider>
     </ThemeProvider>
   );

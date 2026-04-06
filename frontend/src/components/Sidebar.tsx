@@ -1,63 +1,98 @@
-import React from 'react';
-import { useAuth } from './AuthContext';
-import { Home, Users, UserPlus, DollarSign, Swords, Trophy, MessageCircle, Wallet, Settings, Shield, Star, Gamepad2, TrendingUp } from 'lucide-react';
-import { Button } from './ui/button';
-import { Badge } from './ui/badge';
-import { Separator } from './ui/separator';
+import React from "react";
+import { useAuth } from "./AuthContext";
+import { useCurrency } from "../context/CurrencyContext";
+import { formatCurrency } from "../utils/formatCurrency";
+import {
+  Home,
+  Users,
+  UserPlus,
+  DollarSign,
+  Swords,
+  Trophy,
+  MessageCircle,
+  Wallet,
+  Settings,
+  Shield,
+  Star,
+  Gamepad2,
+  TrendingUp,
+  Calendar,
+} from "lucide-react";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { Separator } from "./ui/separator";
 
 interface SidebarProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   onSignOut?: () => void;
+  messageCount?: number;
 }
 
-export function Sidebar({ activeTab, onTabChange, onSignOut }: SidebarProps) {
+export function Sidebar({
+  activeTab,
+  onTabChange,
+  onSignOut,
+  messageCount = 0,
+}: SidebarProps) {
   const { user } = useAuth();
+  const { currency, rates } = useCurrency();
+  const messageBadge =
+    messageCount > 99 ? "99+" : messageCount > 0 ? String(messageCount) : null;
   const navigationSections = [
     {
-      items: [
-        { id: 'home', label: 'Home', icon: Home }
-      ]
+      items: [{ id: "home", label: "Home", icon: Home }],
     },
     {
-      label: 'Compete',
+      label: "Compete",
       icon: Swords,
       items: [
-        { id: 'lobbies', label: 'Lobbies', icon: Gamepad2, badge: '143' },
-        { id: 'wagers', label: 'Wagers', icon: DollarSign },
-        { id: 'tournaments', label: 'Tournaments', icon: Trophy, badge: 'NEW' },
-        { id: 'scrims', label: 'Scrims', icon: Swords }
-      ]
+        { id: "lobbies", label: "Lobbies", icon: Gamepad2 },
+        { id: "wagers", label: "Wagers", icon: DollarSign },
+        { id: "tournaments", label: "Tournaments", icon: Trophy },
+        { id: "scrims", label: "Scrims", icon: Swords },
+      ],
     },
     {
-      label: 'Community',
+      label: "Community",
       icon: Users,
       items: [
-        { id: 'hubs', label: 'Social Hubs', icon: Users, badge: '5' },
-        { id: 'messages', label: 'Messages', icon: MessageCircle, badge: '12' },
-        { id: 'friends', label: 'Friends', icon: UserPlus }
-      ]
+        { id: "hubs", label: "Teams", icon: Users },
+        {
+          id: "messages",
+          label: "Messages",
+          icon: MessageCircle,
+          badge: messageBadge,
+        },
+        { id: "friends", label: "Friends", icon: UserPlus },
+      ],
     },
     {
-      label: 'Progress',
+      label: "Progress",
       icon: TrendingUp,
       items: [
-        { id: 'leaderboards', label: 'Leaderboards', icon: Star },
-        { id: 'stats', label: 'My Stats', icon: TrendingUp }
-      ]
-    }
+        { id: "leaderboards", label: "Leaderboards", icon: Star },
+        { id: "stats", label: "My Stats", icon: TrendingUp },
+        { id: "my-events", label: "My Events", icon: Calendar },
+      ],
+    },
   ];
 
   return (
     <aside className="w-64 bg-card border-r border-border border-b-0 h-screen sticky top-0 flex flex-col animate-fadeInLeft relative sidebar-gradient-fade overflow-hidden">
-      <div className="p-4 space-y-2 relative z-[1] pb-6" data-slot="sidebar-content">
+      <div
+        className="p-4 space-y-2 relative z-[1] pb-6"
+        data-slot="sidebar-content"
+      >
         {/* Main Navigation */}
         <div className="space-y-3">
           {navigationSections.map((section, sectionIndex) => (
             <div key={sectionIndex}>
               {section.label && (
                 <div className="px-3 py-2 flex items-center space-x-2">
-                  {section.icon && <section.icon className="h-3.5 w-3.5 text-muted-foreground" />}
+                  {section.icon && (
+                    <section.icon className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
                   <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
                     {section.label}
                   </span>
@@ -70,8 +105,8 @@ export function Sidebar({ activeTab, onTabChange, onSignOut }: SidebarProps) {
                     variant={activeTab === item.id ? "secondary" : "ghost"}
                     className={`w-full justify-between h-10 px-3 transition-all duration-300 hover:scale-105 hover:translate-x-1 ${
                       activeTab === item.id
-                        ? 'bg-primary/20 text-primary border-primary/50'
-                        : 'text-foreground hover:bg-primary/10 hover:text-primary'
+                        ? "bg-primary/20 text-primary border-primary/50"
+                        : "text-foreground hover:bg-primary/10 hover:text-primary"
                     }`}
                     onClick={() => onTabChange(item.id)}
                   >
@@ -80,11 +115,11 @@ export function Sidebar({ activeTab, onTabChange, onSignOut }: SidebarProps) {
                       <span>{item.label}</span>
                     </div>
                     {item.badge && (
-                      <Badge 
+                      <Badge
                         className={`text-xs px-2 py-0.5 rounded-full ml-2 ${
-                          item.badge === 'NEW' 
-                            ? 'bg-primary text-primary-foreground' 
-                            : 'bg-primary text-primary-foreground'
+                          item.badge === "NEW"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-primary text-primary-foreground"
                         }`}
                       >
                         {item.badge}
@@ -104,7 +139,7 @@ export function Sidebar({ activeTab, onTabChange, onSignOut }: SidebarProps) {
           <Button
             variant="ghost"
             className="w-full justify-start space-x-3 text-foreground hover:bg-primary/10 hover:text-primary transition-all duration-300 hover:scale-105 hover:translate-x-1"
-            onClick={() => onTabChange('wallet-escrow')}
+            onClick={() => onTabChange("wallet-escrow")}
           >
             <Wallet className="h-4 w-4" />
             <span className="flex-1 text-left">Wallet</span>
@@ -113,15 +148,19 @@ export function Sidebar({ activeTab, onTabChange, onSignOut }: SidebarProps) {
               Escrow
             </Badge>
           </Button>
-          
+
           <div className="pl-7 text-sm space-y-1">
             <div className="flex justify-between text-muted-foreground">
               <span>Available Credits:</span>
-              <span className="text-emerald-400 font-medium">{(user?.wallet?.balance ?? 0).toLocaleString()}</span>
+              <span className="text-emerald-400 font-medium">
+                {formatCurrency(user?.wallet?.balance ?? 0, currency, rates)}
+              </span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>In Escrow:</span>
-              <span className="text-amber-400 font-medium">{(user?.wallet?.escrow ?? 0).toLocaleString()}</span>
+              <span className="text-amber-400 font-medium">
+                {formatCurrency(user?.wallet?.escrow ?? 0, currency, rates)}
+              </span>
             </div>
           </div>
         </div>
@@ -132,7 +171,7 @@ export function Sidebar({ activeTab, onTabChange, onSignOut }: SidebarProps) {
         <Button
           variant="ghost"
           className="w-full justify-start space-x-3 text-foreground hover:bg-primary/10 hover:text-primary transition-all duration-300 hover:scale-105 hover:translate-x-1"
-          onClick={() => onTabChange('settings')}
+          onClick={() => onTabChange("settings")}
         >
           <Settings className="h-4 w-4 transition-transform duration-300 hover:rotate-90" />
           <span>Settings</span>
@@ -140,45 +179,10 @@ export function Sidebar({ activeTab, onTabChange, onSignOut }: SidebarProps) {
       </div>
 
       {/* Social Hubs Preview */}
-      <div className="flex-1 px-4 pb-4 relative z-[1]" data-slot="sidebar-content">
-        <div className="bg-muted/30 rounded-lg p-3 space-y-2">
-          <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-            <Users className="h-4 w-4" />
-            <span>Active Hubs</span>
-          </div>
-          
-          <div className="space-y-2">
-            {[
-              { name: 'Pro Scrims', members: 247, online: 23 },
-              { name: 'Valorant Masters', members: 1.2, online: 156 },
-              { name: 'CS2 Legends', members: 892, online: 67 },
-            ].map((hub, i) => (
-              <div key={i} className="flex items-center space-x-2 text-xs">
-                <div className="w-2 h-2 bg-emerald-400 rounded-full"></div>
-                <span className="flex-1 text-foreground">{hub.name}</span>
-                <div className="flex items-center space-x-1 text-muted-foreground">
-                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></div>
-                  <span>{hub.online}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Trust Score */}
-        <div className="mt-4 bg-muted/30 rounded-lg p-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Star className="h-4 w-4 text-amber-400" />
-              <span className="text-sm text-foreground">Trust Score</span>
-            </div>
-            <Badge className="bg-emerald-600 text-white">98.5%</Badge>
-          </div>
-          <div className="mt-2 text-xs text-muted-foreground">
-            Excellent reputation • Low disputes
-          </div>
-        </div>
-      </div>
+      <div
+        className="flex-1 px-4 pb-4 relative z-[1]"
+        data-slot="sidebar-content"
+      ></div>
     </aside>
   );
 }

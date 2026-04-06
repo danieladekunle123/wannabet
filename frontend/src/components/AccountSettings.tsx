@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -13,11 +13,27 @@ import { Badge } from "./ui/badge";
 import { Separator } from "./ui/separator";
 import { Switch } from "./ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
+import {
   User,
   Mail,
   Phone,
   Calendar,
-  MapPin,
   Shield,
   Edit2,
   Camera,
@@ -33,6 +49,7 @@ import {
   Youtube,
   Twitter,
   ArrowLeft,
+  Loader2,
 } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useTheme } from "./ThemeContext";
@@ -40,6 +57,7 @@ import { useAuth } from "./AuthContext";
 import { UserAvatar } from "./UserAvatar";
 import { GifPicker } from "./GifPicker";
 import api from "../lib/api";
+import { usePresence, type UserStatus } from "../context/PresenceContext";
 
 interface AccountSettingsProps {
   onNavigate?: (tab: string) => void;
@@ -48,9 +66,67 @@ interface AccountSettingsProps {
 export function AccountSettings({ onNavigate }: AccountSettingsProps) {
   const { mode, color, setMode, setColor } = useTheme();
   const [isEditing, setIsEditing] = useState(false);
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, logout } = useAuth();
+  const { setManualStatus, getStatus } = usePresence();
   const [showGifPicker, setShowGifPicker] = useState(false);
+  const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [dangerLoading, setDangerLoading] = useState(false);
+  const [dangerError, setDangerError] = useState("");
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+
+  async function handleDeactivate() {
+    setDangerLoading(true);
+    setDangerError("");
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/users/me/deactivate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error((await res.json()).message);
+      logout();
+    } catch (err: any) {
+      setDangerError(err.message || "Failed to deactivate account");
+    } finally {
+      setDangerLoading(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    setDangerLoading(true);
+    setDangerError("");
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/users/me`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ confirmation: "DELETE MY ACCOUNT" }),
+      });
+      if (!res.ok) throw new Error((await res.json()).message);
+      logout();
+    } catch (err: any) {
+      setDangerError(err.message || "Failed to delete account");
+    } finally {
+      setDangerLoading(false);
+    }
+  }
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [countries, setCountries] = useState<
+    Array<{
+      name: string;
+      code: string;
+      flag: string;
+      region: string;
+      timezones: string[];
+      matchmakingRegion: string;
+    }>
+  >([]);
+  const [regions, setRegions] = useState<string[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const GIPHY_API_KEY =
     import.meta.env.VITE_GIPHY_API_KEY || "wYChZ0CXRzFrNp3kVR2bzsAqFHeBWyh2";
@@ -60,18 +136,45 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
     displayName: user?.profile?.displayName ?? user?.username ?? "",
     email: user?.email ?? "",
     phone: "",
-    country: "",
+    country: user?.profile?.country ?? "",
+    region: user?.profile?.region ?? "",
     bio: "",
   }));
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = await api.getCountriesAndRegions();
+        if (cancelled) return;
+        setCountries(Array.isArray(data.countries) ? data.countries : []);
+        setRegions(Array.isArray(data.regions) ? data.regions : []);
+      } catch (err) {
+        console.error(err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSave = () => {
     (async () => {
       try {
         // update username/display name on account
-        await api.updateMyAccount({ username: formData.username, displayName: formData.displayName });
+        await api.updateMyAccount({
+          username: formData.username,
+          displayName: formData.displayName,
+        });
 
-        // update profile fields like bio/country
-        await api.updateMyProfile({ bio: formData.bio, country: formData.country });
+        // update profile fields managed in settings
+        await api.updateMyProfile({
+          bio: formData.bio,
+          country: formData.country || null,
+          region: formData.region || null,
+        });
 
         // refresh global user
         await refreshUser();
@@ -90,12 +193,18 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
       displayName: user?.profile?.displayName ?? user?.username ?? "",
       email: user?.email ?? "",
       phone: "",
-      country: "",
+      country: user?.profile?.country ?? "",
+      region: user?.profile?.region ?? "",
       bio: "",
     });
   };
 
-  const handleAvatarFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const selectedCountry =
+    countries.find((country) => country.code === formData.country) || null;
+
+  const handleAvatarFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -135,8 +244,14 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="w-full max-w-3xl bg-card border border-border rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">Choose Profile GIF</h3>
-              <Button variant="ghost" size="sm" onClick={() => setShowGifPicker(false)}>
+              <h3 className="text-sm font-semibold text-foreground">
+                Choose Profile GIF
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowGifPicker(false)}
+              >
                 Close
               </Button>
             </div>
@@ -233,7 +348,11 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
                 <Camera className="h-4 w-4 mr-2" />
                 {isUploadingAvatar ? "Uploading..." : "Upload Image"}
               </Button>
-              <Button type="button" variant="outline" onClick={() => setShowGifPicker(true)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowGifPicker(true)}
+              >
                 Choose GIF
               </Button>
             </div>
@@ -308,18 +427,64 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
 
             <div className="space-y-2">
               <Label htmlFor="country">Country</Label>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="country"
-                  value={formData.country}
-                  onChange={(e) =>
-                    setFormData({ ...formData, country: e.target.value })
-                  }
-                  disabled={!isEditing}
-                  className="pl-10 bg-input-background"
-                />
-              </div>
+              <Select
+                value={formData.country || "none"}
+                onValueChange={(value) =>
+                  setFormData({
+                    ...formData,
+                    country: value === "none" ? "" : value,
+                  })
+                }
+                disabled={!isEditing}
+              >
+                <SelectTrigger id="country" className="bg-input-background">
+                  <SelectValue placeholder="Select country" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  <SelectItem value="none">Prefer not to say</SelectItem>
+                  {countries.map((country) => (
+                    <SelectItem key={country.code} value={country.code}>
+                      {country.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedCountry?.flag && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <img
+                    src={selectedCountry.flag}
+                    alt={`${selectedCountry.name} flag`}
+                    className="h-3 w-5 rounded-sm object-cover"
+                  />
+                  <span>{selectedCountry.name}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="region">Matchmaking Region</Label>
+              <Select
+                value={formData.region || "none"}
+                onValueChange={(value) =>
+                  setFormData({
+                    ...formData,
+                    region: value === "none" ? "" : value,
+                  })
+                }
+                disabled={!isEditing}
+              >
+                <SelectTrigger id="region" className="bg-input-background">
+                  <SelectValue placeholder="Select region" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Auto-detect</SelectItem>
+                  {regions.map((region) => (
+                    <SelectItem key={region} value={region}>
+                      {region}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -487,213 +652,6 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
         </CardContent>
       </Card>
 
-      {/* Connected Accounts */}
-      <Card className="border-border/50 hover-lift">
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Link2 className="h-5 w-5 mr-2 text-primary" />
-            Connected Accounts
-          </CardTitle>
-          <CardDescription>
-            Link your gaming platforms and social accounts
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Gaming Platforms */}
-          <div className="space-y-3">
-            <Label>Gaming Platforms</Label>
-            <div className="space-y-3">
-              {[
-                {
-                  name: "Steam",
-                  icon: Gamepad2,
-                  connected: true,
-                  username: "EliteGamer2024",
-                  color: "#171a21",
-                },
-                {
-                  name: "Epic Games",
-                  icon: Gamepad2,
-                  connected: true,
-                  username: "EliteGamer",
-                  color: "#2a2a2a",
-                },
-                {
-                  name: "Battle.net",
-                  icon: Gamepad2,
-                  connected: false,
-                  username: null,
-                  color: "#148eff",
-                },
-                {
-                  name: "Xbox Live",
-                  icon: Gamepad2,
-                  connected: false,
-                  username: null,
-                  color: "#107c10",
-                },
-                {
-                  name: "PlayStation",
-                  icon: Gamepad2,
-                  connected: false,
-                  username: null,
-                  color: "#003791",
-                },
-              ].map((platform) => (
-                <div
-                  key={platform.name}
-                  className="flex items-center justify-between p-4 border border-border rounded-lg bg-muted/30 hover:bg-muted/50 transition-all"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div
-                      className="w-10 h-10 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: `${platform.color}20` }}
-                    >
-                      <platform.icon
-                        className="h-5 w-5"
-                        style={{ color: platform.color }}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <h4 className="font-medium text-foreground">
-                          {platform.name}
-                        </h4>
-                        {platform.connected && (
-                          <Badge className="bg-emerald-600 text-white text-xs">
-                            <Check className="h-3 w-3 mr-1" />
-                            Connected
-                          </Badge>
-                        )}
-                      </div>
-                      {platform.connected ? (
-                        <p className="text-sm text-muted-foreground">
-                          {platform.username}
-                        </p>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          Not connected
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  {platform.connected ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-destructive/50 text-destructive hover:bg-destructive/10"
-                    >
-                      Disconnect
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                    >
-                      Connect
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Social Media */}
-          <div className="space-y-3">
-            <Label>Social Media</Label>
-            <div className="space-y-3">
-              {[
-                {
-                  name: "Discord",
-                  icon: MessageSquare,
-                  connected: true,
-                  username: "EliteGamer#1234",
-                  color: "#5865f2",
-                },
-                {
-                  name: "Twitch",
-                  icon: Twitch,
-                  connected: true,
-                  username: "EliteGamerTV",
-                  color: "#9146ff",
-                },
-                {
-                  name: "YouTube",
-                  icon: Youtube,
-                  connected: false,
-                  username: null,
-                  color: "#ff0000",
-                },
-                {
-                  name: "Twitter",
-                  icon: Twitter,
-                  connected: false,
-                  username: null,
-                  color: "#1da1f2",
-                },
-              ].map((social) => (
-                <div
-                  key={social.name}
-                  className="flex items-center justify-between p-4 border border-border rounded-lg bg-muted/30 hover:bg-muted/50 transition-all"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div
-                      className="w-10 h-10 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: `${social.color}20` }}
-                    >
-                      <social.icon
-                        className="h-5 w-5"
-                        style={{ color: social.color }}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <h4 className="font-medium text-foreground">
-                          {social.name}
-                        </h4>
-                        {social.connected && (
-                          <Badge className="bg-emerald-600 text-white text-xs">
-                            <Check className="h-3 w-3 mr-1" />
-                            Connected
-                          </Badge>
-                        )}
-                      </div>
-                      {social.connected ? (
-                        <p className="text-sm text-muted-foreground">
-                          {social.username}
-                        </p>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          Not connected
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  {social.connected ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-destructive/50 text-destructive hover:bg-destructive/10"
-                    >
-                      Disconnect
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                    >
-                      Connect
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Account Preferences */}
       <Card className="border-border/50 hover-lift">
         <CardHeader>
@@ -703,6 +661,52 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Set Status */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>Set Status</Label>
+              <p className="text-sm text-muted-foreground">
+                Choose how you appear to others
+              </p>
+            </div>
+            <Select
+              value={user ? getStatus(user.id) : "offline"}
+              onValueChange={(val) => setManualStatus(val as UserStatus)}
+            >
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="online">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    Online
+                  </span>
+                </SelectItem>
+                <SelectItem value="idle">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-yellow-400" />
+                    Idle
+                  </span>
+                </SelectItem>
+                <SelectItem value="dnd">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500" />
+                    Do Not Disturb
+                  </span>
+                </SelectItem>
+                <SelectItem value="offline">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-gray-400" />
+                    Appear Offline
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Separator />
+
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label>Profile Visibility</Label>
@@ -777,7 +781,10 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
             <Button
               variant="outline"
               className="border-amber-500/50 text-amber-500 hover:bg-amber-500/10 shrink-0"
-              onClick={() => onNavigate?.("deactivate-account")}
+              onClick={() => {
+                setDangerError("");
+                setShowDeactivateDialog(true);
+              }}
             >
               Deactivate
             </Button>
@@ -801,13 +808,103 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
             <Button
               variant="destructive"
               className="bg-destructive hover:bg-destructive/90 shrink-0"
-              onClick={() => onNavigate?.("delete-account")}
+              onClick={() => {
+                setDangerError("");
+                setDeleteConfirmText("");
+                setShowDeleteDialog(true);
+              }}
             >
               Delete
             </Button>
           </div>
         </CardContent>
       </Card>
+
+      {/* Deactivate confirmation */}
+      <AlertDialog
+        open={showDeactivateDialog}
+        onOpenChange={setShowDeactivateDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deactivate your account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your profile will be hidden from other users. You can reactivate
+              at any time by logging back in.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {dangerError && (
+            <p className="text-sm text-destructive px-1">{dangerError}</p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={dangerLoading}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-500 hover:bg-amber-600 text-white"
+              disabled={dangerLoading}
+              onClick={(e: React.MouseEvent) => {
+                e.preventDefault();
+                void handleDeactivate();
+              }}
+            >
+              {dangerLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Deactivate"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive">
+              Permanently delete your account?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete your account and all associated data.
+              This action <strong>cannot be undone</strong>.
+              <br />
+              <br />
+              Type <strong>DELETE MY ACCOUNT</strong> to confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder="DELETE MY ACCOUNT"
+            className="mt-1"
+          />
+          {dangerError && (
+            <p className="text-sm text-destructive px-1">{dangerError}</p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={dangerLoading}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              disabled={
+                dangerLoading || deleteConfirmText !== "DELETE MY ACCOUNT"
+              }
+              onClick={(e: React.MouseEvent) => {
+                e.preventDefault();
+                void handleDeleteAccount();
+              }}
+            >
+              {dangerLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Delete Account"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

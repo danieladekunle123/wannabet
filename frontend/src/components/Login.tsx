@@ -294,6 +294,7 @@ export function Login({ onNavigate, onSwitchToSignup }: LoginProps) {
             <Button
               variant="link"
               className="text-primary hover:text-primary/80 p-0 text-xs"
+              onClick={() => onNavigate("terms-of-service")}
             >
               Terms of Service
             </Button>{" "}
@@ -301,6 +302,7 @@ export function Login({ onNavigate, onSwitchToSignup }: LoginProps) {
             <Button
               variant="link"
               className="text-primary hover:text-primary/80 p-0 text-xs"
+              onClick={() => onNavigate("privacy-policy")}
             >
               Privacy Policy
             </Button>
@@ -309,7 +311,7 @@ export function Login({ onNavigate, onSwitchToSignup }: LoginProps) {
       </div>
 
       {/* Footer */}
-      <Footer />
+      <Footer onNavigate={onNavigate} />
     </div>
   );
 }

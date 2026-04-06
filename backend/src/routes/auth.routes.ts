@@ -1,10 +1,13 @@
 import { Router } from "express";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 import { loginUser, registerUser } from "../services/auth.service";
 import { OAuth2Client } from "google-auth-library";
 import axios from "axios";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
+import { getUserRegion } from "../services/ipinfoService";
+import { resolveClientIp } from "../lib/clientIp";
+import { getConfig } from "../lib/platformConfig";
 
 export const authRouter = Router();
 
@@ -16,10 +19,21 @@ const RegisterSchema = z.object({
 
 authRouter.post("/register", async (req, res) => {
   try {
+    const config = await getConfig();
+    if (!config.registrationEnabled) {
+      return res
+        .status(403)
+        .json({ message: "New registrations are currently disabled." });
+    }
     const body = RegisterSchema.parse(req.body);
-    const result = await registerUser(body);
+    const result = await registerUser({ ...body, ip: resolveClientIp(req).ip });
     res.status(201).json(result);
   } catch (err: any) {
+    if (err instanceof ZodError) {
+      return res.status(400).json({
+        message: err.issues.map((i: any) => i.message).join(", "),
+      });
+    }
     res
       .status(err.status ?? 400)
       .json({ message: err.message ?? "Bad request" });
@@ -37,6 +51,11 @@ authRouter.post("/login", async (req, res) => {
     const result = await loginUser(body);
     res.json(result);
   } catch (err: any) {
+    if (err instanceof ZodError) {
+      return res.status(400).json({
+        message: err.issues.map((i: any) => i.message).join(", "),
+      });
+    }
     res
       .status(err.status ?? 400)
       .json({ message: err.message ?? "Bad request" });
@@ -97,24 +116,43 @@ authRouter.post("/google", async (req, res) => {
     let user = await prisma.user.findUnique({ where: { email } });
 
     if (mode === "signin" && !user) {
-      return res
-        .status(404)
-        .json({
-          message:
-            "No account found for this Google account. Please sign up first.",
-        });
+      return res.status(404).json({
+        message:
+          "No account found for this Google account. Please sign up first.",
+      });
     }
 
     if (mode === "signup" && user) {
-      return res
-        .status(409)
-        .json({
-          message:
-            "This Google account is already registered. Please sign in instead.",
-        });
+      return res.status(409).json({
+        message:
+          "This Google account is already registered. Please sign in instead.",
+      });
+    }
+
+    // Block new signups when registrations are disabled
+    if (mode === "signup" || !user) {
+      const config = await getConfig();
+      if (!config.registrationEnabled) {
+        return res
+          .status(403)
+          .json({ message: "New registrations are currently disabled." });
+      }
     }
 
     if (!user) {
+      let detectedCountry: string | null = null;
+      let detectedRegion: string | null = null;
+      let detectedContinent: string | null = null;
+
+      try {
+        const detection = await getUserRegion(resolveClientIp(req).ip);
+        detectedCountry = detection.country;
+        detectedRegion = detection.region || detection.matchmakingRegion;
+        detectedContinent = detection.continent;
+      } catch {
+        // Region detection should not block Google signup.
+      }
+
       const baseUsername = (name || email.split("@")[0])
         .toLowerCase()
         .replace(/[^a-z0-9]/g, "");
@@ -135,7 +173,9 @@ authRouter.post("/google", async (req, res) => {
             create: {
               displayName: name || uniqueUsername,
               bio: "",
-              country: null,
+              country: detectedCountry,
+              region: detectedRegion,
+              continent: detectedContinent,
               level: 1,
               trustScore: 100,
             },

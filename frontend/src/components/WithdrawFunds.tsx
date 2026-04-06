@@ -1,19 +1,27 @@
-import React, { useState } from 'react';
-import api from '../lib/api';
-import { useAuth } from './AuthContext';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Badge } from './ui/badge';
-import { Separator } from './ui/separator';
-import { RadioGroup, RadioGroupItem } from './ui/radio-group';
-import { Checkbox } from './ui/checkbox';
-import { Progress } from './ui/progress';
-import { 
-  ArrowLeft, 
-  Wallet, 
-  DollarSign, 
+import React, { useState } from "react";
+import api from "../lib/api";
+import { useAuth } from "./AuthContext";
+import { useCurrency } from "../context/CurrencyContext";
+import { formatCurrency, formatCurrencyFromEur } from "../utils/formatCurrency";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Badge } from "./ui/badge";
+import { Separator } from "./ui/separator";
+import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
+import { Checkbox } from "./ui/checkbox";
+import { Progress } from "./ui/progress";
+import {
+  ArrowLeft,
+  Wallet,
+  DollarSign,
   ArrowUpRight,
   Shield,
   Check,
@@ -28,8 +36,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileText,
-  Mail
-} from 'lucide-react';
+  Mail,
+} from "lucide-react";
 
 interface WithdrawFundsProps {
   onNavigate?: (tab: string) => void;
@@ -37,108 +45,102 @@ interface WithdrawFundsProps {
 
 export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
   const [step, setStep] = useState(1); // 1: Amount, 2: Withdrawal Method, 3: Verification, 4: Confirmation, 5: Success
-  const [amount, setAmount] = useState('');
-  const [customAmount, setCustomAmount] = useState('');
-  const [withdrawalMethod, setWithdrawalMethod] = useState('paypal');
+  const [amount, setAmount] = useState("");
+  const [customAmount, setCustomAmount] = useState("");
+  const [withdrawalMethod, setWithdrawalMethod] = useState("paypal");
   const [agreeToTerms, setAgreeToTerms] = useState(false);
-  const [verificationCode, setVerificationCode] = useState('');
-  const [withdrawalFee, setWithdrawalFee] = useState(0);
+  const [verificationCode, setVerificationCode] = useState("");
 
   const { refreshUser } = useAuth();
   const { user } = useAuth();
+  const { currency, rates } = useCurrency();
   const currentBalance = user?.wallet?.balance ?? 0;
   const inEscrow = user?.wallet?.escrow ?? 0;
   const availableBalance = currentBalance - inEscrow;
 
-  const quickAmounts = [100, 250, 500, 1000, 1950]; // Max is available balance
+  const quickAmounts = [100, 250, 500, 1000, 2500]; // Max is available balance
 
   const withdrawalMethods = [
     {
-      id: 'paypal',
-      name: 'PayPal',
+      id: "paypal",
+      name: "PayPal",
       icon: Wallet,
-      description: 'Fast & secure',
-      fee: '2.5%',
+      description: "Fast & secure",
+      fee: "2%",
       minAmount: 50,
-      maxAmount: 5000,
-      processingTime: '1-2 business days',
+      maxAmount: 10000,
+      processingTime: "1-2 business days",
       recommended: true,
       popular: true,
-      accountInfo: 'user@email.com'
+      accountInfo: "user@email.com",
     },
     {
-      id: 'bank-transfer',
-      name: 'Bank Transfer',
+      id: "bank-transfer",
+      name: "Bank Transfer",
       icon: Building2,
-      description: 'ACH/Direct deposit',
-      fee: '$5.00',
+      description: "ACH/Direct deposit",
+      fee: "2%",
       minAmount: 100,
-      maxAmount: 50000,
-      processingTime: '3-5 business days',
-      accountInfo: 'Account ending in •••• 4321'
+      maxAmount: 10000,
+      processingTime: "3-5 business days",
+      accountInfo: "Account ending in •••• 4321",
     },
     {
-      id: 'crypto',
-      name: 'Cryptocurrency',
+      id: "crypto",
+      name: "Cryptocurrency",
       icon: Bitcoin,
-      description: 'BTC, ETH, USDT',
-      fee: '1.5%',
+      description: "BTC, ETH, USDT",
+      fee: "2%",
       minAmount: 100,
-      maxAmount: 100000,
-      processingTime: '15-30 minutes',
-      accountInfo: 'Not connected'
+      maxAmount: 10000,
+      processingTime: "15-30 minutes",
+      accountInfo: "Not connected",
     },
     {
-      id: 'check',
-      name: 'Check by Mail',
+      id: "check",
+      name: "Check by Mail",
       icon: FileText,
-      description: 'Physical check',
-      fee: '$10.00',
+      description: "Physical check",
+      fee: "2%",
       minAmount: 200,
       maxAmount: 10000,
-      processingTime: '7-10 business days',
-      accountInfo: 'Mailed to registered address'
-    }
+      processingTime: "7-10 business days",
+      accountInfo: "Mailed to registered address",
+    },
   ];
 
-  const selectedMethod = withdrawalMethods.find(m => m.id === withdrawalMethod);
+  const selectedMethod = withdrawalMethods.find(
+    (m) => m.id === withdrawalMethod,
+  );
 
   const calculateFee = (amt: number) => {
-    if (!selectedMethod) return 0;
-    if (selectedMethod.fee.includes('%')) {
-      const percentage = parseFloat(selectedMethod.fee.replace('%', ''));
-      return (amt * percentage) / 100;
-    }
-    return parseFloat(selectedMethod.fee.replace('$', ''));
+    return amt * 0.02;
   };
 
   const handleAmountSelect = (value: string) => {
     setAmount(value);
-    setCustomAmount('');
-    const fee = calculateFee(parseFloat(value));
-    setWithdrawalFee(fee);
+    setCustomAmount("");
   };
 
   const handleCustomAmountChange = (value: string) => {
     setCustomAmount(value);
     setAmount(value);
-    const fee = calculateFee(parseFloat(value) || 0);
-    setWithdrawalFee(fee);
   };
 
   const handleWithdrawalMethodChange = (methodId: string) => {
     setWithdrawalMethod(methodId);
-    const fee = calculateFee(parseFloat(amount) || 0);
-    setWithdrawalFee(fee);
   };
 
-  const totalReceived = parseFloat(amount || '0') - withdrawalFee;
+  const amountNum = parseFloat(amount || "0");
+  const withdrawalFee = calculateFee(amountNum);
+  const totalReceived = amountNum - withdrawalFee;
+  const totalDeducted = amountNum + withdrawalFee;
 
-  const canProceedStep1 = 
-    amount && 
-    parseFloat(amount) >= (selectedMethod?.minAmount || 0) &&
-    parseFloat(amount) <= availableBalance;
-    
+  const canProceedStep1 =
+    amount &&
+    amountNum >= (selectedMethod?.minAmount || 0) &&
+    totalDeducted <= availableBalance;
+
   const canProceedStep2 = withdrawalMethod && agreeToTerms;
   const canProceedStep3 = verificationCode.length === 6;
 
@@ -149,11 +151,11 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
     {
       id: 1,
       amount: 300,
-      method: 'PayPal',
-      date: '2 days ago',
-      status: 'processing',
-      estimatedCompletion: 'Tomorrow'
-    }
+      method: "PayPal",
+      date: "2 days ago",
+      status: "processing",
+      estimatedCompletion: "Tomorrow",
+    },
   ];
 
   return (
@@ -163,7 +165,9 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => step === 1 ? onNavigate?.('wallet-escrow') : setStep(step - 1)}
+          onClick={() =>
+            step === 1 ? onNavigate?.("wallet-escrow") : setStep(step - 1)
+          }
           className="hover:bg-primary/10 hover:text-primary"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -178,7 +182,7 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
           </p>
         </div>
         <Badge variant="outline" className="text-xs">
-          Available: ${availableBalance.toLocaleString()}
+          Available: {formatCurrency(availableBalance, currency, rates)}
         </Badge>
       </div>
 
@@ -188,19 +192,27 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Step {step} of 5</span>
-              <span className="text-primary font-medium">{progressPercentage.toFixed(0)}% Complete</span>
+              <span className="text-primary font-medium">
+                {progressPercentage.toFixed(0)}% Complete
+              </span>
             </div>
             <Progress value={progressPercentage} className="h-2" />
             <div className="grid grid-cols-5 gap-2 mt-4">
-              {['Amount', 'Method', 'Verify', 'Confirm', 'Complete'].map((label, idx) => (
-                <div key={label} className="text-center">
-                  <div className={`text-xs font-medium ${
-                    idx + 1 <= step ? 'text-primary' : 'text-muted-foreground'
-                  }`}>
-                    {label}
+              {["Amount", "Method", "Verify", "Confirm", "Complete"].map(
+                (label, idx) => (
+                  <div key={label} className="text-center">
+                    <div
+                      className={`text-xs font-medium ${
+                        idx + 1 <= step
+                          ? "text-primary"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {label}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ),
+              )}
             </div>
           </div>
         </CardContent>
@@ -215,10 +227,17 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
               <div className="flex-1">
                 <h4 className="font-medium text-sm">Pending Withdrawal</h4>
                 <p className="text-xs text-muted-foreground mt-1">
-                  You have ${pendingWithdrawals[0].amount} withdrawal in progress via {pendingWithdrawals[0].method}
+                  You have{" "}
+                  {formatCurrencyFromEur(
+                    pendingWithdrawals[0].amount,
+                    currency,
+                    rates,
+                  )}{" "}
+                  withdrawal in progress via {pendingWithdrawals[0].method}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Estimated completion: {pendingWithdrawals[0].estimatedCompletion}
+                  Estimated completion:{" "}
+                  {pendingWithdrawals[0].estimatedCompletion}
                 </p>
               </div>
             </div>
@@ -237,16 +256,28 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
             <CardContent>
               <div className="grid grid-cols-3 gap-4">
                 <div className="p-4 bg-muted/30 rounded-lg">
-                  <p className="text-xs text-muted-foreground mb-1">Total Balance</p>
-                  <p className="text-xl font-bold">${currentBalance.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Total Balance
+                  </p>
+                  <p className="text-xl font-bold">
+                    {formatCurrency(currentBalance, currency, rates)}
+                  </p>
                 </div>
                 <div className="p-4 bg-amber-600/10 rounded-lg border border-amber-600/30">
-                  <p className="text-xs text-muted-foreground mb-1">In Escrow</p>
-                  <p className="text-xl font-bold text-amber-400">${inEscrow}</p>
+                  <p className="text-xs text-muted-foreground mb-1">
+                    In Escrow
+                  </p>
+                  <p className="text-xl font-bold text-amber-400">
+                    {formatCurrency(inEscrow, currency, rates)}
+                  </p>
                 </div>
                 <div className="p-4 bg-emerald-600/10 rounded-lg border border-emerald-600/30">
-                  <p className="text-xs text-muted-foreground mb-1">Available</p>
-                  <p className="text-xl font-bold text-emerald-400">${availableBalance.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Available
+                  </p>
+                  <p className="text-xl font-bold text-emerald-400">
+                    {formatCurrency(availableBalance, currency, rates)}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -270,18 +301,20 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                   {quickAmounts.map((amt) => (
                     <Button
                       key={amt}
-                      variant={amount === amt.toString() ? 'default' : 'outline'}
+                      variant={
+                        amount === amt.toString() ? "default" : "outline"
+                      }
                       onClick={() => handleAmountSelect(amt.toString())}
                       className={`relative ${
-                        amount === amt.toString() 
-                          ? 'bg-primary text-primary-foreground' 
-                          : 'border-primary/30 hover:border-primary hover:bg-primary/10'
+                        amount === amt.toString()
+                          ? "bg-primary text-primary-foreground"
+                          : "border-primary/30 hover:border-primary hover:bg-primary/10"
                       }`}
                     >
                       {amount === amt.toString() && (
                         <Check className="h-3 w-3 absolute top-1 right-1" />
                       )}
-                      ${amt}
+                      {formatCurrencyFromEur(amt, currency, rates)}
                     </Button>
                   ))}
                 </div>
@@ -304,7 +337,21 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Minimum: ${selectedMethod?.minAmount || 50} • Maximum: ${Math.min(availableBalance, selectedMethod?.maxAmount || 5000).toLocaleString()}
+                  Minimum:{" "}
+                  {formatCurrencyFromEur(
+                    selectedMethod?.minAmount || 50,
+                    currency,
+                    rates,
+                  )}{" "}
+                  • Maximum:{" "}
+                  {formatCurrencyFromEur(
+                    Math.min(
+                      availableBalance / 100,
+                      selectedMethod?.maxAmount || 5000,
+                    ),
+                    currency,
+                    rates,
+                  )}
                 </p>
               </div>
 
@@ -314,21 +361,39 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-muted-foreground">Withdrawal Amount</p>
-                        <p className="text-3xl font-bold text-primary">${parseFloat(amount).toFixed(2)}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Withdrawal Amount
+                        </p>
+                        <p className="text-3xl font-bold text-primary">
+                          {formatCurrencyFromEur(
+                            parseFloat(amount),
+                            currency,
+                            rates,
+                          )}
+                        </p>
                       </div>
                       <TrendingDown className="h-12 w-12 text-primary opacity-50" />
                     </div>
                     <Separator className="my-4" />
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
-                        <p className="text-muted-foreground">Available Balance</p>
-                        <p className="font-medium">${availableBalance.toLocaleString()}</p>
+                        <p className="text-muted-foreground">
+                          Available Balance
+                        </p>
+                        <p className="font-medium">
+                          {formatCurrency(availableBalance, currency, rates)}
+                        </p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground">Remaining Balance</p>
+                        <p className="text-muted-foreground">
+                          Remaining Balance
+                        </p>
                         <p className="font-medium">
-                          ${(availableBalance - parseFloat(amount)).toLocaleString()}
+                          {formatCurrencyFromEur(
+                            availableBalance / 100 - parseFloat(amount),
+                            currency,
+                            rates,
+                          )}
                         </p>
                       </div>
                     </div>
@@ -343,9 +408,14 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                     <div className="flex items-start gap-3">
                       <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
                       <div>
-                        <h4 className="font-medium text-sm text-red-400">Insufficient Available Balance</h4>
+                        <h4 className="font-medium text-sm text-red-400">
+                          Insufficient Available Balance
+                        </h4>
                         <p className="text-xs text-muted-foreground mt-1">
-                          You can only withdraw ${availableBalance.toLocaleString()}. ${inEscrow} is currently held in escrow.
+                          You can only withdraw{" "}
+                          {formatCurrency(availableBalance, currency, rates)}.{" "}
+                          {formatCurrency(inEscrow, currency, rates)} is
+                          currently held in escrow.
                         </p>
                       </div>
                     </div>
@@ -364,7 +434,8 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                   <div>
                     <h4 className="font-medium text-sm">Processing Time</h4>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Withdrawals typically take 1-5 business days depending on the method
+                      Withdrawals typically take 1-5 business days depending on
+                      the method
                     </p>
                   </div>
                 </div>
@@ -391,7 +462,7 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
               size="lg"
               disabled={!canProceedStep1}
               onClick={() => setStep(2)}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground min-w-[200px]"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground w-full sm:w-auto sm:min-w-[200px]"
             >
               Continue
               <ChevronRight className="h-4 w-4 ml-2" />
@@ -414,7 +485,10 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <RadioGroup value={withdrawalMethod} onValueChange={handleWithdrawalMethodChange}>
+              <RadioGroup
+                value={withdrawalMethod}
+                onValueChange={handleWithdrawalMethodChange}
+              >
                 <div className="grid gap-3">
                   {withdrawalMethods.map((method) => {
                     const Icon = method.icon;
@@ -424,16 +498,21 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                         key={method.id}
                         className={`relative flex items-center space-x-3 p-4 border rounded-lg cursor-pointer transition-all hover-lift ${
                           isSelected
-                            ? 'border-primary bg-primary/5'
-                            : 'border-border hover:border-primary/50'
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/50"
                         }`}
                         onClick={() => handleWithdrawalMethodChange(method.id)}
                       >
                         <RadioGroupItem value={method.id} id={method.id} />
-                        <Icon className={`h-5 w-5 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
+                        <Icon
+                          className={`h-5 w-5 ${isSelected ? "text-primary" : "text-muted-foreground"}`}
+                        />
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <Label htmlFor={method.id} className="cursor-pointer">
+                            <Label
+                              htmlFor={method.id}
+                              className="cursor-pointer"
+                            >
                               {method.name}
                             </Label>
                             {method.recommended && (
@@ -448,13 +527,25 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                             )}
                           </div>
                           <div className="flex items-center gap-3 mt-1 flex-wrap">
-                            <p className="text-xs text-muted-foreground">{method.description}</p>
-                            <span className="text-xs text-muted-foreground">•</span>
-                            <p className="text-xs text-muted-foreground">Fee: {method.fee}</p>
-                            <span className="text-xs text-muted-foreground">•</span>
-                            <p className="text-xs text-muted-foreground">{method.processingTime}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {method.description}
+                            </p>
+                            <span className="text-xs text-muted-foreground">
+                              •
+                            </span>
+                            <p className="text-xs text-muted-foreground">
+                              Fee: {method.fee}
+                            </p>
+                            <span className="text-xs text-muted-foreground">
+                              •
+                            </span>
+                            <p className="text-xs text-muted-foreground">
+                              {method.processingTime}
+                            </p>
                           </div>
-                          <p className="text-xs text-primary mt-1">{method.accountInfo}</p>
+                          <p className="text-xs text-primary mt-1">
+                            {method.accountInfo}
+                          </p>
                         </div>
                         {isSelected && (
                           <Check className="h-5 w-5 text-primary" />
@@ -474,14 +565,14 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                 <CardTitle className="text-base">Withdrawal Details</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {withdrawalMethod === 'paypal' && (
+                {withdrawalMethod === "paypal" && (
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label>PayPal Email</Label>
-                      <Input 
-                        placeholder="your@email.com" 
+                      <Input
+                        placeholder="your@email.com"
                         defaultValue="user@email.com"
-                        className="bg-input-background" 
+                        className="bg-input-background"
                       />
                       <p className="text-xs text-muted-foreground">
                         Make sure this email matches your PayPal account
@@ -490,21 +581,27 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                   </div>
                 )}
 
-                {withdrawalMethod === 'bank-transfer' && (
+                {withdrawalMethod === "bank-transfer" && (
                   <div className="space-y-4">
                     <Card className="bg-muted/30 border-border/50">
                       <CardContent className="pt-4">
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-muted-foreground">Bank Name</span>
+                            <span className="text-muted-foreground">
+                              Bank Name
+                            </span>
                             <span className="font-medium">Chase Bank</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-muted-foreground">Account Number</span>
+                            <span className="text-muted-foreground">
+                              Account Number
+                            </span>
                             <span className="font-medium">•••• •••• 4321</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-muted-foreground">Routing Number</span>
+                            <span className="text-muted-foreground">
+                              Routing Number
+                            </span>
                             <span className="font-medium">•••••6789</span>
                           </div>
                         </div>
@@ -516,7 +613,7 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                   </div>
                 )}
 
-                {withdrawalMethod === 'crypto' && (
+                {withdrawalMethod === "crypto" && (
                   <div className="space-y-4">
                     <div className="text-center py-6">
                       <AlertCircle className="h-12 w-12 text-amber-400 mx-auto mb-4" />
@@ -530,18 +627,24 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                   </div>
                 )}
 
-                {withdrawalMethod === 'check' && (
+                {withdrawalMethod === "check" && (
                   <div className="space-y-4">
                     <Card className="bg-muted/30 border-border/50">
                       <CardContent className="pt-4">
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-muted-foreground">Mailing Address</span>
+                            <span className="text-muted-foreground">
+                              Mailing Address
+                            </span>
                           </div>
                           <div className="text-sm">
                             <p className="font-medium">John Doe</p>
-                            <p className="text-muted-foreground">123 Gaming Street</p>
-                            <p className="text-muted-foreground">Los Angeles, CA 90001</p>
+                            <p className="text-muted-foreground">
+                              123 Gaming Street
+                            </p>
+                            <p className="text-muted-foreground">
+                              Los Angeles, CA 90001
+                            </p>
                           </div>
                         </div>
                       </CardContent>
@@ -562,24 +665,28 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                 <Checkbox
                   id="terms"
                   checked={agreeToTerms}
-                  onCheckedChange={(checked) => setAgreeToTerms(checked as boolean)}
+                  onCheckedChange={(checked) =>
+                    setAgreeToTerms(checked as boolean)
+                  }
                 />
                 <div className="space-y-1">
                   <Label htmlFor="terms" className="cursor-pointer text-sm">
                     I confirm the withdrawal details are correct
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    Incorrect details may result in delayed or failed withdrawals
+                    Incorrect details may result in delayed or failed
+                    withdrawals
                   </p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <div className="flex justify-between">
+          <div className="flex flex-col-reverse sm:flex-row gap-3 sm:gap-0 sm:justify-between">
             <Button
               variant="outline"
               onClick={() => setStep(1)}
+              className="w-full sm:w-auto"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
@@ -588,7 +695,7 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
               size="lg"
               disabled={!canProceedStep2}
               onClick={() => setStep(3)}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground min-w-[200px]"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground w-full sm:w-auto sm:min-w-[200px]"
             >
               Continue
               <ChevronRight className="h-4 w-4 ml-2" />
@@ -616,11 +723,16 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                   <div className="flex items-start gap-3">
                     <Mail className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
                     <div>
-                      <h4 className="font-medium text-sm">Verification Code Sent</h4>
+                      <h4 className="font-medium text-sm">
+                        Verification Code Sent
+                      </h4>
                       <p className="text-xs text-muted-foreground mt-1">
                         We've sent a 6-digit code to your email: user@email.com
                       </p>
-                      <Button variant="link" className="text-xs px-0 h-auto mt-2">
+                      <Button
+                        variant="link"
+                        className="text-xs px-0 h-auto mt-2"
+                      >
                         Didn't receive it? Resend code
                       </Button>
                     </div>
@@ -629,14 +741,18 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
               </Card>
 
               <div className="space-y-3">
-                <Label htmlFor="verificationCode">Enter Verification Code</Label>
+                <Label htmlFor="verificationCode">
+                  Enter Verification Code
+                </Label>
                 <Input
                   id="verificationCode"
                   type="text"
                   placeholder="000000"
                   maxLength={6}
                   value={verificationCode}
-                  onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                  onChange={(e) =>
+                    setVerificationCode(e.target.value.replace(/\D/g, ""))
+                  }
                   className="text-center text-2xl tracking-widest h-14 bg-input-background"
                 />
                 <p className="text-xs text-muted-foreground text-center">
@@ -651,7 +767,8 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                     <div>
                       <h4 className="font-medium text-sm">Security Notice</h4>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Never share your verification code with anyone. WannaBet? staff will never ask for this code.
+                        Never share your verification code with anyone.
+                        WannaBet? staff will never ask for this code.
                       </p>
                     </div>
                   </div>
@@ -660,10 +777,11 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
             </CardContent>
           </Card>
 
-          <div className="flex justify-between">
+          <div className="flex flex-col-reverse sm:flex-row gap-3 sm:gap-0 sm:justify-between">
             <Button
               variant="outline"
               onClick={() => setStep(2)}
+              className="w-full sm:w-auto"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
@@ -672,7 +790,7 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
               size="lg"
               disabled={!canProceedStep3}
               onClick={() => setStep(4)}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground min-w-[200px]"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground w-full sm:w-auto sm:min-w-[200px]"
             >
               Verify & Continue
               <ChevronRight className="h-4 w-4 ml-2" />
@@ -698,17 +816,33 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
               {/* Amount Summary */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Withdrawal Amount</span>
-                  <span className="text-xl font-bold">${parseFloat(amount).toFixed(2)}</span>
+                  <span className="text-muted-foreground">
+                    Withdrawal Amount
+                  </span>
+                  <span className="text-xl font-bold">
+                    {formatCurrencyFromEur(amountNum, currency, rates)}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Processing Fee ({selectedMethod?.fee})</span>
-                  <span className="font-medium text-red-400">-${withdrawalFee.toFixed(2)}</span>
+                  <span className="text-muted-foreground">
+                    Processing Fee (2%)
+                  </span>
+                  <span className="font-medium text-red-400">
+                    -{formatCurrencyFromEur(withdrawalFee, currency, rates)}
+                  </span>
                 </div>
                 <Separator />
                 <div className="flex justify-between items-center">
                   <span className="font-medium">You Will Receive</span>
-                  <span className="text-2xl font-bold text-emerald-400">${totalReceived.toFixed(2)}</span>
+                  <span className="text-2xl font-bold text-emerald-400">
+                    {formatCurrencyFromEur(totalReceived, currency, rates)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-xs text-muted-foreground">
+                  <span>Deducted from wallet</span>
+                  <span>
+                    {formatCurrencyFromEur(totalDeducted, currency, rates)}
+                  </span>
                 </div>
               </div>
 
@@ -718,10 +852,16 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
               <div className="space-y-3">
                 <h4 className="font-medium">Withdrawal Method</h4>
                 <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
-                  {selectedMethod && <selectedMethod.icon className="h-5 w-5 text-primary" />}
+                  {selectedMethod && (
+                    <selectedMethod.icon className="h-5 w-5 text-primary" />
+                  )}
                   <div className="flex-1">
-                    <p className="font-medium text-sm">{selectedMethod?.name}</p>
-                    <p className="text-xs text-muted-foreground">{selectedMethod?.accountInfo}</p>
+                    <p className="font-medium text-sm">
+                      {selectedMethod?.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedMethod?.accountInfo}
+                    </p>
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -736,13 +876,23 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                 <h4 className="font-medium">Account Balance</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-3 bg-muted/30 rounded-lg">
-                    <p className="text-xs text-muted-foreground mb-1">Current Available</p>
-                    <p className="text-lg font-bold">${availableBalance.toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground mb-1">
+                      Current Available
+                    </p>
+                    <p className="text-lg font-bold">
+                      {formatCurrency(availableBalance, currency, rates)}
+                    </p>
                   </div>
                   <div className="p-3 bg-primary/10 rounded-lg border border-primary/30">
-                    <p className="text-xs text-muted-foreground mb-1">After Withdrawal</p>
+                    <p className="text-xs text-muted-foreground mb-1">
+                      After Withdrawal
+                    </p>
                     <p className="text-lg font-bold text-primary">
-                      ${(availableBalance - parseFloat(amount)).toLocaleString()}
+                      {formatCurrencyFromEur(
+                        availableBalance / 100 - parseFloat(amount),
+                        currency,
+                        rates,
+                      )}
                     </p>
                   </div>
                 </div>
@@ -758,7 +908,10 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                       <ul className="text-xs text-muted-foreground mt-2 space-y-1 list-disc list-inside">
                         <li>Withdrawals cannot be canceled once submitted</li>
                         <li>Make sure all account details are correct</li>
-                        <li>Processing times may vary based on your bank or payment provider</li>
+                        <li>
+                          Processing times may vary based on your bank or
+                          payment provider
+                        </li>
                       </ul>
                     </div>
                   </div>
@@ -767,10 +920,11 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
             </CardContent>
           </Card>
 
-          <div className="flex justify-between">
+          <div className="flex flex-col-reverse sm:flex-row gap-3 sm:gap-0 sm:justify-between">
             <Button
               variant="outline"
               onClick={() => setStep(3)}
+              className="w-full sm:w-auto"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
@@ -779,8 +933,9 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
               size="lg"
               onClick={async () => {
                 try {
-                  const amt = parseFloat(amount || '0');
-                  await api.withdraw(amt);
+                  const amt = parseFloat(amount || "0");
+                  const fee = amt * 0.02;
+                  await api.withdraw(parseFloat((amt + fee).toFixed(2)));
                   await refreshUser();
                   setStep(5);
                 } catch (err: any) {
@@ -788,7 +943,7 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                   // TODO: show user-facing error
                 }
               }}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground min-w-[200px]"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground w-full sm:w-auto sm:min-w-[200px]"
             >
               <Lock className="h-4 w-4 mr-2" />
               Submit Withdrawal
@@ -815,26 +970,47 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                 <Card className="bg-muted/30 border-border/50">
                   <CardContent className="pt-6 space-y-4">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Withdrawal Amount</span>
-                      <span className="font-bold text-primary">-${parseFloat(amount).toFixed(2)}</span>
+                      <span className="text-muted-foreground">
+                        Withdrawal Amount
+                      </span>
+                      <span className="font-bold text-primary">
+                        -
+                        {formatCurrencyFromEur(
+                          parseFloat(amount),
+                          currency,
+                          rates,
+                        )}
+                      </span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Processing Fee</span>
-                      <span className="font-medium text-red-400">-${withdrawalFee.toFixed(2)}</span>
+                      <span className="text-muted-foreground">
+                        Processing Fee
+                      </span>
+                      <span className="font-medium text-red-400">
+                        -{formatCurrencyFromEur(withdrawalFee, currency, rates)}
+                      </span>
                     </div>
                     <Separator />
                     <div className="flex justify-between">
                       <span className="font-medium">You Will Receive</span>
-                      <span className="text-lg font-bold text-emerald-400">${totalReceived.toFixed(2)}</span>
+                      <span className="text-lg font-bold text-emerald-400">
+                        {formatCurrencyFromEur(totalReceived, currency, rates)}
+                      </span>
                     </div>
                     <Separator />
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Estimated Arrival</span>
-                      <span className="font-medium">{selectedMethod?.processingTime}</span>
+                      <span className="text-muted-foreground">
+                        Estimated Arrival
+                      </span>
+                      <span className="font-medium">
+                        {selectedMethod?.processingTime}
+                      </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Method</span>
-                      <span className="font-medium">{selectedMethod?.name}</span>
+                      <span className="font-medium">
+                        {selectedMethod?.name}
+                      </span>
                     </div>
                   </CardContent>
                 </Card>
@@ -853,11 +1029,16 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
                     <div className="flex items-start gap-3">
                       <Info className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
                       <div className="text-left">
-                        <h4 className="font-medium text-sm">What Happens Next?</h4>
+                        <h4 className="font-medium text-sm">
+                          What Happens Next?
+                        </h4>
                         <ul className="text-xs text-muted-foreground mt-2 space-y-1 list-disc list-inside">
                           <li>Your withdrawal is now being processed</li>
                           <li>You'll receive email updates on the status</li>
-                          <li>Funds will arrive within {selectedMethod?.processingTime.toLowerCase()}</li>
+                          <li>
+                            Funds will arrive within{" "}
+                            {selectedMethod?.processingTime.toLowerCase()}
+                          </li>
                           <li>Track your withdrawal in transaction history</li>
                         </ul>
                       </div>
@@ -872,15 +1053,15 @@ export function WithdrawFunds({ onNavigate }: WithdrawFundsProps) {
             <Button
               variant="outline"
               size="lg"
-              onClick={() => onNavigate?.('wallet-escrow')}
-              className="min-w-[200px]"
+              onClick={() => onNavigate?.("wallet-escrow")}
+              className="w-full sm:w-auto sm:min-w-[200px]"
             >
               View Transaction History
             </Button>
             <Button
               size="lg"
-              onClick={() => onNavigate?.('home')}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground min-w-[200px]"
+              onClick={() => onNavigate?.("home")}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground w-full sm:w-auto sm:min-w-[200px]"
             >
               Back to Home
               <ChevronRight className="h-4 w-4 ml-2" />

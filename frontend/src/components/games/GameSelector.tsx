@@ -13,16 +13,22 @@ export interface SelectedGameOption {
 }
 
 interface GameSelectorProps {
+  initialSelectedGame?: SelectedGameOption | null;
   onGameSelected: (game: SelectedGameOption) => void;
 }
 
-export function GameSelector({ onGameSelected }: GameSelectorProps) {
+export function GameSelector({
+  initialSelectedGame = null,
+  onGameSelected,
+}: GameSelectorProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [results, setResults] = useState<RawgGameSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<SelectedGameOption | null>(null);
+  const [selectedGame, setSelectedGame] = useState<SelectedGameOption | null>(
+    null,
+  );
 
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -77,6 +83,16 @@ export function GameSelector({ onGameSelected }: GameSelectorProps) {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!initialSelectedGame?.name) return;
+    setSelectedGame(initialSelectedGame);
+    setSearchQuery(initialSelectedGame.name);
+  }, [
+    initialSelectedGame?.gameId,
+    initialSelectedGame?.name,
+    initialSelectedGame?.manualEntry,
+  ]);
+
   const commitManualEntry = () => {
     const query = searchQuery.trim();
     if (!query) return;
@@ -113,7 +129,7 @@ export function GameSelector({ onGameSelected }: GameSelectorProps) {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           value={searchQuery}
-          placeholder="Search games via RAWG or type and press Enter"
+          placeholder="Search GAMES via RAWG or type and press Enter"
           className="pl-10 bg-muted/50 border-muted"
           onFocus={() => setOpen(true)}
           onChange={(e) => {
@@ -131,7 +147,11 @@ export function GameSelector({ onGameSelected }: GameSelectorProps) {
 
       {selectedGame && (
         <div className="mt-2">
-          <Badge className={selectedGame.manualEntry ? "bg-slate-600" : "bg-emerald-600"}>
+          <Badge
+            className={
+              selectedGame.manualEntry ? "bg-slate-600" : "bg-emerald-600"
+            }
+          >
             {selectedGame.manualEntry ? "Manual" : "RAWG"}: {selectedGame.name}
           </Badge>
         </div>
@@ -146,44 +166,61 @@ export function GameSelector({ onGameSelected }: GameSelectorProps) {
             </div>
           )}
 
-          {!loading && debouncedQuery.trim().length >= 2 && results.length === 0 && (
-            <div className="px-3 py-3 text-sm text-muted-foreground">
-              No games found. Press Enter to use "{searchQuery.trim()}" as manual entry.
-            </div>
-          )}
+          {!loading &&
+            debouncedQuery.trim().length >= 2 &&
+            results.length === 0 && (
+              <div className="px-3 py-3 text-sm text-muted-foreground">
+                No games found. Press Enter to use "{searchQuery.trim()}" as
+                manual entry.
+              </div>
+            )}
 
-          {!loading && results.map((game) => {
-            const releaseYear = game.released ? new Date(game.released).getFullYear() : "TBD";
-            return (
-              <button
-                key={game.id}
-                type="button"
-                className="w-full px-3 py-2 text-left hover:bg-muted/40 transition-colors"
-                onClick={() => pickResult(game)}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="h-11 w-11 rounded overflow-hidden bg-muted shrink-0">
-                    {game.background_image ? (
-                      <img src={game.background_image} alt={game.name} className="h-full w-full object-cover" loading="lazy" />
-                    ) : (
-                      <div className="h-full w-full grid place-items-center text-[10px] text-muted-foreground">No Img</div>
-                    )}
-                  </div>
+          {!loading &&
+            results.map((game) => {
+              const releaseYear = game.released
+                ? new Date(game.released).getFullYear()
+                : "TBD";
+              return (
+                <button
+                  key={game.id}
+                  type="button"
+                  className="w-full px-3 py-2 text-left hover:bg-muted/40 transition-colors"
+                  onClick={() => pickResult(game)}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="h-11 w-11 rounded overflow-hidden bg-muted shrink-0">
+                      {game.background_image ? (
+                        <img
+                          src={game.background_image}
+                          alt={game.name}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="h-full w-full grid place-items-center text-[10px] text-muted-foreground">
+                          No Img
+                        </div>
+                      )}
+                    </div>
 
-                  <div className="min-w-0">
-                    <div className="font-medium text-sm text-foreground truncate">{game.name}</div>
-                    <div className="text-xs text-muted-foreground flex items-center gap-2">
-                      <span>{releaseYear}</span>
-                      <span className="inline-flex items-center gap-1">
-                        <Star className="h-3 w-3 text-amber-400" />
-                        {typeof game.rating === "number" ? game.rating.toFixed(1) : "N/A"}
-                      </span>
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm text-foreground truncate">
+                        {game.name}
+                      </div>
+                      <div className="text-xs text-muted-foreground flex items-center gap-2">
+                        <span>{releaseYear}</span>
+                        <span className="inline-flex items-center gap-1">
+                          <Star className="h-3 w-3 text-amber-400" />
+                          {typeof game.rating === "number"
+                            ? game.rating.toFixed(1)
+                            : "N/A"}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
         </div>
       )}
     </div>

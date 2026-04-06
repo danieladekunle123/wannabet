@@ -14,6 +14,7 @@ import {
 import { UserPlus } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { UserAvatar } from "./UserAvatar";
+import { getTrustRank } from "../utils/trustRank";
 
 interface ProfileDropdownProps {
   onNavigate?: (page: string) => void;
@@ -31,7 +32,7 @@ export function ProfileDropdown({
   const userStats = {
     username: user?.username ?? "YouAreHere",
     displayName: user?.profile?.displayName ?? "Elite Gamer",
-    trustScore: 98.5,
+    trustScore: Math.round((user?.profile?.trustScore ?? 87) * 10) / 10,
     totalEarnings: user?.totalEarnings ?? 0,
     currentRank: 42,
     mmr: 2450,
@@ -96,12 +97,17 @@ export function ProfileDropdown({
               <Badge className="bg-emerald-600 text-white text-xs">
                 #{userStats.currentRank} Global
               </Badge>
-              <div className="flex items-center space-x-1">
-                <Shield className="h-3 w-3 text-emerald-400" />
-                <span className="text-xs text-emerald-400">
-                  {userStats.trustScore}%
-                </span>
-              </div>
+              {(() => {
+                const rank = getTrustRank(userStats.trustScore);
+                return (
+                  <div
+                    className={`flex items-center space-x-1 ${rank.textColor}`}
+                  >
+                    <Shield className="h-3 w-3" />
+                    <span className="text-xs font-medium">{rank.label}</span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -142,16 +148,6 @@ export function ProfileDropdown({
           >
             <Wallet className="h-4 w-4 mr-3" />
             Wallet & Escrow
-          </Button>
-
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-foreground hover:bg-primary/10 hover:text-primary focus:ring-2 focus:ring-primary profile-menu-item"
-            style={{ animationDelay: "320ms" }}
-            onClick={() => handleNavigateAndClose("subscriptions-credits")}
-          >
-            <CreditCard className="h-4 w-4 mr-3" />
-            Subscriptions / Credits
           </Button>
 
           <Button

@@ -29,6 +29,10 @@ export type User = {
   profile?: {
     displayName?: string | null;
     bio?: string | null;
+    country?: string | null;
+    region?: string | null;
+    continent?: string | null;
+    trustScore?: number | null;
   };
   role?: "PLAYER" | "MODERATOR" | "ADMIN";
 };
@@ -51,6 +55,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     if (!res.ok) throw new Error("Session expired");
     const data = await res.json();
+    // If the server returns no user (e.g. deleted account with stale token), force logout.
+    if (!data.user) {
+      logout();
+      return;
+    }
     const normalizedUser = {
       ...data.user,
       profileImageUrl:
@@ -137,6 +146,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     const data = await res.json().catch(() => ({}));
+
+    // User no longer exists in DB (stale token) — force logout.
+    if (res.status === 404) {
+      logout();
+      return;
+    }
+
     if (!res.ok) {
       throw new Error(data?.message || "Failed to complete onboarding");
     }

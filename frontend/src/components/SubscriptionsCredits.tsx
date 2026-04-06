@@ -1,62 +1,83 @@
-import React from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Badge } from './ui/badge';
-import { Separator } from './ui/separator';
-import { Crown, Check, Zap, Shield, Star, Gift, TrendingUp, Calendar, ArrowLeft } from 'lucide-react';
+import React from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { Separator } from "./ui/separator";
+import {
+  Crown,
+  Check,
+  Zap,
+  Shield,
+  Star,
+  Gift,
+  TrendingUp,
+  Calendar,
+  ArrowLeft,
+} from "lucide-react";
+import { useCurrency } from "../context/CurrencyContext";
+import { formatCurrencyFromEur } from "../utils/formatCurrency";
 
 interface SubscriptionsCreditsProps {
   onNavigate?: (tab: string) => void;
 }
 
-export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) {
+export function SubscriptionsCredits({
+  onNavigate,
+}: SubscriptionsCreditsProps) {
+  const { currency, rates } = useCurrency();
   const subscriptionTiers = [
     {
-      name: 'Free',
+      name: "Free",
       price: 0,
-      period: 'forever',
-      description: 'Perfect for casual players',
+      period: "forever",
+      description: "Perfect for casual players",
       features: [
-        'Access to public lobbies',
-        'Basic matchmaking',
-        '5% transaction fee',
-        'Community support',
-        'Match history (30 days)',
+        "Access to public lobbies",
+        "Basic matchmaking",
+        "5% transaction fee",
+        "Community support",
+        "Match history (30 days)",
       ],
       current: false,
     },
     {
-      name: 'Pro',
+      name: "Pro",
       price: 9.99,
-      period: 'month',
-      description: 'For serious competitors',
+      period: "month",
+      description: "For serious competitors",
       features: [
-        'All Free features',
-        'Priority matchmaking',
-        '2.5% transaction fee',
-        'Priority support',
-        'Unlimited match history',
-        'Custom profile badge',
-        'Tournament entry discounts',
+        "All Free features",
+        "Priority matchmaking",
+        "2.5% transaction fee",
+        "Priority support",
+        "Unlimited match history",
+        "Custom profile badge",
+        "Tournament entry discounts",
       ],
       current: true,
       popular: true,
     },
     {
-      name: 'Elite',
+      name: "Elite",
       price: 24.99,
-      period: 'month',
-      description: 'For professional players',
+      period: "month",
+      description: "For professional players",
       features: [
-        'All Pro features',
-        'VIP matchmaking',
-        '0% transaction fee',
-        'Dedicated support',
-        'Exclusive tournaments',
-        'Elite profile badge',
-        'Team management tools',
-        'Advanced analytics',
-        'Private scrims hosting',
+        "All Pro features",
+        "VIP matchmaking",
+        "0% transaction fee",
+        "Dedicated support",
+        "Exclusive tournaments",
+        "Elite profile badge",
+        "Team management tools",
+        "Advanced analytics",
+        "Private scrims hosting",
       ],
       current: false,
       premium: true,
@@ -71,9 +92,30 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
   ];
 
   const purchaseHistory = [
-    { id: 1, type: 'subscription', item: 'Pro Monthly', amount: 9.99, date: 'Dec 1, 2024', status: 'active' },
-    { id: 2, type: 'credits', item: '500 Credits + 25 Bonus', amount: 50, date: 'Nov 28, 2024', status: 'completed' },
-    { id: 3, type: 'credits', item: '250 Credits + 10 Bonus', amount: 25, date: 'Nov 15, 2024', status: 'completed' },
+    {
+      id: 1,
+      type: "subscription",
+      item: "Pro Monthly",
+      amount: 9.99,
+      date: "Dec 1, 2024",
+      status: "active",
+    },
+    {
+      id: 2,
+      type: "credits",
+      item: "500 Credits + 25 Bonus",
+      amount: 50,
+      date: "Nov 28, 2024",
+      status: "completed",
+    },
+    {
+      id: 3,
+      type: "credits",
+      item: "250 Credits + 10 Bonus",
+      amount: 25,
+      date: "Nov 15, 2024",
+      status: "completed",
+    },
   ];
 
   return (
@@ -83,7 +125,7 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => onNavigate?.('settings')}
+          onClick={() => onNavigate?.("settings")}
           className="hover:bg-primary/10 hover:text-primary"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -107,21 +149,23 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
               </CardTitle>
               <CardDescription>Pro Plan</CardDescription>
             </div>
-            <Badge className="bg-primary text-primary-foreground">
-              Active
-            </Badge>
+            <Badge className="bg-primary text-primary-foreground">Active</Badge>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-baseline space-x-2">
-            <span className="text-3xl font-bold text-foreground">$9.99</span>
+            <span className="text-3xl font-bold text-foreground">
+              {formatCurrencyFromEur(9.99, currency, rates)}
+            </span>
             <span className="text-muted-foreground">/month</span>
           </div>
-          
+
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Next billing date:</span>
-              <span className="font-medium text-foreground">January 1, 2025</span>
+              <span className="font-medium text-foreground">
+                January 1, 2025
+              </span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Payment method:</span>
@@ -132,10 +176,16 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
           <Separator />
 
           <div className="flex space-x-3">
-            <Button variant="outline" className="flex-1 border-primary/50 text-primary hover:bg-primary/10">
+            <Button
+              variant="outline"
+              className="flex-1 border-primary/50 text-primary hover:bg-primary/10"
+            >
               Change Plan
             </Button>
-            <Button variant="outline" className="flex-1 border-destructive/50 text-destructive hover:bg-destructive/10">
+            <Button
+              variant="outline"
+              className="flex-1 border-destructive/50 text-destructive hover:bg-destructive/10"
+            >
               Cancel
             </Button>
           </div>
@@ -150,8 +200,10 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
             <Card
               key={tier.name}
               className={`border-border/50 hover-lift relative ${
-                tier.popular ? 'border-primary/50 bg-gradient-to-br from-primary/5 to-transparent' : ''
-              } ${tier.premium ? 'border-amber-500/50 bg-gradient-to-br from-amber-500/5 to-transparent' : ''}`}
+                tier.popular
+                  ? "border-primary/50 bg-gradient-to-br from-primary/5 to-transparent"
+                  : ""
+              } ${tier.premium ? "border-amber-500/50 bg-gradient-to-br from-amber-500/5 to-transparent" : ""}`}
               style={{ animationDelay: `${index * 0.1}s` }}
             >
               {tier.popular && (
@@ -181,8 +233,12 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
                 <CardDescription>{tier.description}</CardDescription>
                 <div className="pt-4">
                   <div className="flex items-baseline space-x-2">
-                    <span className="text-3xl font-bold text-foreground">${tier.price}</span>
-                    <span className="text-muted-foreground">/{tier.period}</span>
+                    <span className="text-3xl font-bold text-foreground">
+                      {formatCurrencyFromEur(tier.price, currency, rates)}
+                    </span>
+                    <span className="text-muted-foreground">
+                      /{tier.period}
+                    </span>
                   </div>
                 </div>
               </CardHeader>
@@ -192,21 +248,27 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
                   {tier.features.map((feature, idx) => (
                     <li key={idx} className="flex items-start space-x-2">
                       <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                      <span className="text-sm text-muted-foreground">{feature}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {feature}
+                      </span>
                     </li>
                   ))}
                 </ul>
                 <Button
                   className={`w-full ${
                     tier.current
-                      ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                      ? "bg-muted text-muted-foreground cursor-not-allowed"
                       : tier.premium
-                      ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                      : 'bg-primary hover:bg-primary/90 text-primary-foreground'
+                        ? "bg-amber-500 hover:bg-amber-600 text-white"
+                        : "bg-primary hover:bg-primary/90 text-primary-foreground"
                   }`}
                   disabled={tier.current}
                 >
-                  {tier.current ? 'Current Plan' : tier.price === 0 ? 'Downgrade' : 'Upgrade'}
+                  {tier.current
+                    ? "Current Plan"
+                    : tier.price === 0
+                      ? "Downgrade"
+                      : "Upgrade"}
                 </Button>
               </CardContent>
             </Card>
@@ -228,7 +290,9 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
             <Card
               key={pkg.amount}
               className={`border-border/50 hover-lift flex flex-col ${
-                pkg.popular ? 'border-primary/50 bg-gradient-to-br from-primary/5 to-transparent relative' : ''
+                pkg.popular
+                  ? "border-primary/50 bg-gradient-to-br from-primary/5 to-transparent relative"
+                  : ""
               }`}
               style={{ animationDelay: `${index * 0.1}s` }}
             >
@@ -245,8 +309,7 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
                 <div className="h-8 flex items-start pt-2">
                   {pkg.bonus > 0 ? (
                     <Badge className="bg-emerald-600 text-white w-fit">
-                      <Gift className="h-3 w-3 mr-1" />
-                      +{pkg.bonus} Bonus
+                      <Gift className="h-3 w-3 mr-1" />+{pkg.bonus} Bonus
                     </Badge>
                   ) : (
                     <Badge className="bg-muted/50 text-muted-foreground w-fit border border-border/50">
@@ -258,7 +321,7 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
               </CardHeader>
               <CardContent className="flex flex-col flex-grow justify-end space-y-4">
                 <div className="text-3xl font-bold text-foreground">
-                  ${pkg.price}
+                  {formatCurrencyFromEur(pkg.price, currency, rates)}
                 </div>
                 <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
                   Purchase
@@ -289,27 +352,39 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
                 style={{ animationDelay: `${index * 0.05}s` }}
               >
                 <div className="flex items-center space-x-3">
-                  <div className={`p-2 rounded-lg ${
-                    purchase.type === 'subscription' ? 'bg-primary/20' : 'bg-emerald-600/20'
-                  }`}>
-                    {purchase.type === 'subscription' ? (
+                  <div
+                    className={`p-2 rounded-lg ${
+                      purchase.type === "subscription"
+                        ? "bg-primary/20"
+                        : "bg-emerald-600/20"
+                    }`}
+                  >
+                    {purchase.type === "subscription" ? (
                       <Crown className="h-4 w-4 text-primary" />
                     ) : (
                       <Zap className="h-4 w-4 text-emerald-400" />
                     )}
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-foreground">{purchase.item}</p>
-                    <p className="text-xs text-muted-foreground">{purchase.date}</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {purchase.item}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {purchase.date}
+                    </p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm font-bold text-foreground">${purchase.amount}</div>
-                  <Badge className={`text-xs ${
-                    purchase.status === 'active' 
-                      ? 'bg-emerald-600 text-white' 
-                      : 'bg-muted text-muted-foreground'
-                  }`}>
+                  <div className="text-sm font-bold text-foreground">
+                    {formatCurrencyFromEur(purchase.amount, currency, rates)}
+                  </div>
+                  <Badge
+                    className={`text-xs ${
+                      purchase.status === "active"
+                        ? "bg-emerald-600 text-white"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
                     {purchase.status}
                   </Badge>
                 </div>
@@ -350,7 +425,9 @@ export function SubscriptionsCredits({ onNavigate }: SubscriptionsCreditsProps) 
             <div className="space-y-2">
               <div className="flex items-center space-x-2">
                 <Gift className="h-5 w-5 text-primary" />
-                <h4 className="font-medium text-foreground">Exclusive Events</h4>
+                <h4 className="font-medium text-foreground">
+                  Exclusive Events
+                </h4>
               </div>
               <p className="text-sm text-muted-foreground">
                 Access subscriber-only tournaments and special events

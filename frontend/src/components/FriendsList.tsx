@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -46,6 +46,7 @@ import {
   DropdownMenuSeparator,
 } from "./ui/dropdown-menu";
 import { UserAvatar } from "./UserAvatar";
+import { usePresence } from "../context/PresenceContext";
 
 interface Friend {
   id: string;
@@ -94,6 +95,7 @@ export function FriendsList({
   onNavigate: (tab: string, query?: string) => void;
 }) {
   const { token, user } = useAuth();
+  const { watchUsers, getStatus } = usePresence();
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
   const [activeTab, setActiveTab] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
@@ -119,8 +121,8 @@ export function FriendsList({
         profileImageUrl: u.profileImageUrl || u.avatarUrl || null,
         avatarUrl: u.avatarUrl || null,
         status: "offline",
-        trustScore: 100,
-        level: 1,
+        trustScore: u.profile?.trustScore ?? 87,
+        level: u.profile?.level ?? 1,
         wins: 0,
         mmr: 1000,
         friendSince: "",
@@ -128,6 +130,7 @@ export function FriendsList({
         mutualFriends: 0,
       }));
       setFriends(list);
+      watchUsers(list.map((f: Friend) => f.id));
     } catch (err) {
       console.error(err);
     }
@@ -215,10 +218,15 @@ export function FriendsList({
   const filteredFriends = friends.filter((f) =>
     f.username.toLowerCase().includes(searchTerm.toLowerCase()),
   );
-  const onlineFriends = filteredFriends.filter((f) => f.status === "online");
-  const offlineFriends = filteredFriends.filter((f) => f.status === "offline");
+  const onlineFriends = filteredFriends.filter((f) => {
+    const s = getStatus(f.id);
+    return s === "online" || s === "idle";
+  });
+  const offlineFriends = filteredFriends.filter(
+    (f) => getStatus(f.id) === "offline",
+  );
   const awayBusyFriends = filteredFriends.filter(
-    (f) => f.status === "away" || f.status === "busy",
+    (f) => getStatus(f.id) === "dnd",
   );
   const filteredFriendRequests = friendRequests.filter((r) =>
     r.username.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -341,11 +349,11 @@ export function FriendsList({
     onNavigate(`profile-${friendId}`);
   };
   const handleInviteToMatch = (friendId: string) => {
-    console.log("Inviting friend to match:", friendId);
+    onNavigate(`request-match:${friendId}`);
   };
 
   return (
-    <div className="min-h-screen pt-16 lg:pl-64 bg-background">
+    <div className="min-h-full pt-16 lg:pl-64 bg-background">
       <div className="container mx-auto p-6 space-y-6">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -465,7 +473,7 @@ export function FriendsList({
                 />
               </div>
             </div>
-            <TabsList className="grid w-full grid-cols-4 bg-muted/50">
+            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 bg-muted/50 h-auto">
               <TabsTrigger
                 value="all"
                 className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
@@ -935,6 +943,27 @@ function FriendCard({
     }
   };
 
+  const { getStatus, watchUsers } = usePresence();
+  useEffect(() => {
+    watchUsers([friend.id]);
+  }, [friend.id, watchUsers]);
+  const liveStatus = getStatus(friend.id);
+  const liveColorMap: Record<string, string> = {
+    online: "bg-emerald-500",
+    idle: "bg-yellow-400",
+    dnd: "bg-red-500",
+    offline: "bg-muted-foreground",
+  };
+  const liveColor = liveColorMap[liveStatus] ?? "bg-muted-foreground";
+  const liveText =
+    liveStatus === "online"
+      ? "Online"
+      : liveStatus === "idle"
+        ? "Idle"
+        : liveStatus === "dnd"
+          ? "Do Not Disturb"
+          : "Offline";
+
   return (
     <motion.div
       initial={{ opacity: 0, x: -20 }}
@@ -953,7 +982,7 @@ function FriendCard({
               fallbackClassName="bg-primary/20 text-primary text-lg"
             />
             <div
-              className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-background ${getStatusColor(friend.status)} ${friend.status === "online" ? "animate-pulse" : ""}`}
+              className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-background ${liveColor} ${liveStatus === "online" ? "animate-pulse" : ""}`}
             />
           </div>
           <div className="flex-1 min-w-0">
@@ -967,9 +996,9 @@ function FriendCard({
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span
-                className={friend.status === "online" ? "text-emerald-400" : ""}
+                className={liveStatus === "online" ? "text-emerald-400" : ""}
               >
-                {getStatusText(friend.status)}
+                {liveText}
               </span>
               {friend.currentGame && (
                 <>
@@ -1006,7 +1035,7 @@ function FriendCard({
           >
             <MessageSquare className="h-4 w-4" />
           </Button>
-          {friend.status === "online" && (
+          {liveStatus === "online" && (
             <Button
               size="sm"
               className="bg-primary hover:bg-primary/90"
