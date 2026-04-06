@@ -38,12 +38,11 @@ const server = http.createServer(app);
 // Required for accurate client IP extraction when behind reverse proxies/CDNs.
 app.set("trust proxy", true);
 
+const corsOrigins = env.CORS_ORIGIN.split(",").map((s) => s.trim());
+
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000", // React dev server
-      "http://localhost:5173", // Vite (optional / legacy)
-    ],
+    origin: corsOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -157,7 +156,7 @@ app.use("/api/esports", esportsRouter);
 
 const io = new IOServer(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3002"],
+    origin: corsOrigins,
     credentials: true,
   },
 });
