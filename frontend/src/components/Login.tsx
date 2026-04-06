@@ -69,15 +69,18 @@ export function Login({ onNavigate, onSwitchToSignup }: LoginProps) {
     onSuccess: async (codeResponse) => {
       setIsLoading(true);
       try {
-        const res = await fetch("http://localhost:4000/auth/google", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            code: codeResponse.code,
-            redirectUri: googleRedirectUri,
-            mode: "signin",
-          }),
-        });
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL || "http://localhost:4000"}/auth/google`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: codeResponse.code,
+              redirectUri: googleRedirectUri,
+              mode: "signin",
+            }),
+          },
+        );
 
         const data = await res.json();
 

@@ -52,6 +52,8 @@ import {
 } from "./ui/select";
 import { Slider } from "./ui/slider";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+
 function BugReportCard({
   report,
   updating,
@@ -132,14 +134,11 @@ function BugReportCard({
           {report.imageUrl && (
             <div className="rounded-lg overflow-hidden border border-border/50">
               <img
-                src={`http://localhost:4000${report.imageUrl}`}
+                src={`${API_URL}${report.imageUrl}`}
                 alt="Bug screenshot"
                 className="w-full max-h-48 object-contain bg-muted/20 cursor-pointer"
                 onClick={() =>
-                  window.open(
-                    `http://localhost:4000${report.imageUrl}`,
-                    "_blank",
-                  )
+                  window.open(`${API_URL}${report.imageUrl}`, "_blank")
                 }
               />
             </div>
@@ -201,7 +200,6 @@ export function Admin() {
 
   const { token } = useAuth();
   const { currency, rates } = useCurrency();
-  const API_URL = "http://localhost:4000";
 
   const [users, setUsers] = useState<any[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);

@@ -79,6 +79,8 @@ import {
   DialogTrigger,
 } from "./ui/dialog";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+
 interface Player {
   id: string;
   username: string;
@@ -149,7 +151,7 @@ export function Moderator() {
     (async () => {
       try {
         if (!token) return;
-        const res = await fetch("http://localhost:4000/users/stats", {
+        const res = await fetch(`${API_URL}/users/stats`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) return;
@@ -206,7 +208,7 @@ export function Moderator() {
         }
 
         const res = await fetch(
-          `http://localhost:4000/users/moderation/players?${params.toString()}`,
+          `${API_URL}/users/moderation/players?${params.toString()}`,
           {
             headers: { Authorization: `Bearer ${token}` },
             signal: controller.signal,
@@ -251,7 +253,7 @@ export function Moderator() {
         setSelectedPlayerError("");
 
         const res = await fetch(
-          `http://localhost:4000/users/moderation/players/${selectedId}`,
+          `${API_URL}/users/moderation/players/${selectedId}`,
           {
             headers: { Authorization: `Bearer ${token}` },
             signal: controller.signal,
@@ -291,10 +293,9 @@ export function Moderator() {
     if (!token) return;
     (async () => {
       try {
-        const res = await fetch(
-          "http://localhost:4000/users/moderation/activity",
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
+        const res = await fetch(`${API_URL}/users/moderation/activity`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (!res.ok) return;
         const data = await res.json();
         setActivityData(data);
@@ -412,7 +413,7 @@ export function Moderator() {
 
   async function warnUser(userId: string, reason?: string) {
     if (!token) throw new Error("Not authenticated");
-    const res = await fetch(`http://localhost:4000/users/${userId}/warn`, {
+    const res = await fetch(`${API_URL}/users/${userId}/warn`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -429,7 +430,7 @@ export function Moderator() {
 
   async function banUser(userId: string, reason?: string, expiresAt?: string) {
     if (!token) throw new Error("Not authenticated");
-    const res = await fetch(`http://localhost:4000/users/${userId}/ban`, {
+    const res = await fetch(`${API_URL}/users/${userId}/ban`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -446,7 +447,7 @@ export function Moderator() {
 
   async function unbanUser(userId: string) {
     if (!token) throw new Error("Not authenticated");
-    const res = await fetch(`http://localhost:4000/users/${userId}/unban`, {
+    const res = await fetch(`${API_URL}/users/${userId}/unban`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -462,12 +463,9 @@ export function Moderator() {
     if (!selectedPlayer) return;
     (async () => {
       try {
-        const res = await fetch(
-          `http://localhost:4000/users/${selectedPlayer.id}/logs`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
+        const res = await fetch(`${API_URL}/users/${selectedPlayer.id}/logs`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (!res.ok) return;
         const data = await res.json();
         setPlayerLogs(data.logs || []);
