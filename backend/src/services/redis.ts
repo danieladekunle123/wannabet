@@ -2,10 +2,9 @@ import Redis from "ioredis";
 
 import { emitEventUpdate } from "../lib/socket";
 
-const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-const redis = new Redis(redisUrl);
-const pub = new Redis(redisUrl);
-const sub = new Redis(redisUrl);
+const redis = new Redis(process.env.REDIS_URL);
+export const pub = new Redis(process.env.REDIS_URL);
+export const sub = new Redis(process.env.REDIS_URL);
 
 redis.on("connect", () => console.log("Redis connected"));
 redis.on("error", (err) => console.error("Redis error:", err));
