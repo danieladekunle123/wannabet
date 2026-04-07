@@ -8,6 +8,7 @@ import { prisma } from "../lib/prisma";
 import { getUserRegion } from "../services/ipinfoService";
 import { resolveClientIp } from "../lib/clientIp";
 import { getConfig } from "../lib/platformConfig";
+import { checkRateLimit } from "../services/redis";
 
 export const authRouter = Router();
 
@@ -47,6 +48,14 @@ const LoginSchema = z.object({
 
 authRouter.post("/login", async (req, res) => {
   try {
+    const ip = resolveClientIp(req).ip;
+    const { allowed } = await checkRateLimit(`rate:login:${ip}`, 10);
+    if (!allowed) {
+      return res
+        .status(429)
+        .json({ message: "Too many login attempts. Try again later." });
+    }
+
     const body = LoginSchema.parse(req.body);
     const result = await loginUser(body);
     res.json(result);

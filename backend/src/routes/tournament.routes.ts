@@ -3,6 +3,12 @@ import { z } from "zod";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
+import {
+  cacheGet,
+  cacheSet,
+  CACHE_KEYS,
+  invalidateAllLobbyCaches,
+} from "../services/redis";
 
 export const tournamentRouter = Router();
 
@@ -227,6 +233,9 @@ const SubmitResultSchema = z.object({
 // GET /tournaments
 tournamentRouter.get("/", async (_req, res) => {
   try {
+    const cached = await cacheGet<any>(CACHE_KEYS.tournaments);
+    if (cached) return res.json(cached);
+
     const tournaments = await prisma.tournament.findMany({
       orderBy: { createdAt: "desc" },
       take: 100,
@@ -245,7 +254,9 @@ tournamentRouter.get("/", async (_req, res) => {
         _count: { select: { teamParticipants: true } },
       },
     });
-    return res.json({ tournaments });
+    const result = { tournaments };
+    await cacheSet(CACHE_KEYS.tournaments, result, 30);
+    return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ message: err.message ?? "Server error" });
   }
@@ -424,6 +435,7 @@ tournamentRouter.post("/", requireAuth, async (req, res) => {
       },
     });
 
+    await invalidateAllLobbyCaches();
     return res.status(201).json({ tournament: t });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });
@@ -478,6 +490,7 @@ tournamentRouter.post("/:id/teams", requireAuth, async (req, res) => {
       data: { tournamentId: id, teamId, seed: currentCount + 1 },
       include: { team: { select: { id: true, name: true } } },
     });
+    await invalidateAllLobbyCaches();
     return res.status(201).json({ entry });
   } catch (err: any) {
     if ((err as any).code === "P2002")
@@ -516,6 +529,7 @@ tournamentRouter.delete("/:id/teams/:teamId", requireAuth, async (req, res) => {
     await prisma.tournamentTeam.delete({
       where: { tournamentId_teamId: { tournamentId: id, teamId } },
     });
+    await invalidateAllLobbyCaches();
     return res.json({ ok: true });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });
@@ -572,6 +586,7 @@ tournamentRouter.post("/:id/start", requireAuth, async (req, res) => {
         tMatches: { orderBy: [{ roundNumber: "asc" }, { matchIndex: "asc" }] },
       },
     });
+    await invalidateAllLobbyCaches();
     return res.json({ tournament: updated });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });
@@ -715,6 +730,7 @@ tournamentRouter.post(
             payload.scoreB ?? null,
           ),
         );
+        await invalidateAllLobbyCaches();
         return res.json({
           status: "completed",
           winnerId: payload.claimedWinnerId,
@@ -739,6 +755,7 @@ tournamentRouter.post(
               a!.scoreB,
             ),
           );
+          await invalidateAllLobbyCaches();
           return res.json({
             status: "completed",
             winnerId: a!.claimedWinnerId,
@@ -749,6 +766,7 @@ tournamentRouter.post(
           where: { id: matchId },
           data: { status: "disputed" },
         });
+        await invalidateAllLobbyCaches();
         return res.json({ status: "disputed" });
       }
 
@@ -792,6 +810,7 @@ tournamentRouter.post(
       await prisma.$transaction((tx) =>
         confirmMatchTx(tx, matchId, winnerId, match.scoreA, match.scoreB),
       );
+      await invalidateAllLobbyCaches();
       return res.json({ ok: true, winnerId });
     } catch (err: any) {
       return res.status(400).json({ message: err.message ?? "Bad request" });
@@ -843,6 +862,7 @@ tournamentRouter.post(
       await prisma.$transaction((tx) =>
         confirmMatchTx(tx, matchId, winnerId, null, null),
       );
+      await invalidateAllLobbyCaches();
       return res.json({ ok: true, winnerId });
     } catch (err: any) {
       return res.status(400).json({ message: err.message ?? "Bad request" });
@@ -907,6 +927,7 @@ tournamentRouter.patch("/:id", requireAuth, async (req, res) => {
         }),
       },
     });
+    await invalidateAllLobbyCaches();
     return res.json({ tournament: updated });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });
@@ -938,17 +959,16 @@ tournamentRouter.delete("/:id", requireAuth, async (req, res) => {
       tournament._count.teamParticipants > 0 &&
       !["upcoming", "open"].includes(tournament.status)
     )
-      return res
-        .status(400)
-        .json({
-          message:
-            "Cannot cancel an in-progress tournament that has participants",
-        });
+      return res.status(400).json({
+        message:
+          "Cannot cancel an in-progress tournament that has participants",
+      });
 
     await prisma.tournament.update({
       where: { id },
       data: { status: "cancelled" },
     });
+    await invalidateAllLobbyCaches();
     return res.json({ ok: true });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });
@@ -1001,6 +1021,7 @@ tournamentRouter.post("/:id/join", requireAuth, async (req, res) => {
         data: { tournamentId: id, userId, paid: false },
       });
     }
+    await invalidateAllLobbyCaches();
     return res.json({ message: "Joined" });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });

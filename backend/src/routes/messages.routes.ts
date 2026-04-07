@@ -5,6 +5,7 @@ import multer from "multer";
 import { requireAuth } from "../middleware/auth";
 import { prisma } from "../lib/prisma";
 import { getIo } from "../lib/socket";
+import { setMessageRead, checkRateLimit } from "../services/redis";
 
 const router = Router();
 
@@ -518,6 +519,11 @@ router.post("/:conversationId/read", requireAuth, async (req: any, res) => {
       data: { readAt },
     });
 
+    // Cache read receipts in Redis for fast lookup
+    await Promise.all(
+      messageIds.map((msgId) => setMessageRead(msgId, userId)),
+    ).catch(() => {});
+
     const payload = {
       conversationId: channelKey,
       readerId: userId,
@@ -530,12 +536,14 @@ router.post("/:conversationId/read", requireAuth, async (req: any, res) => {
       if (channelKey) {
         io.to(`channel:${channelKey}`).emit("message:read", payload);
       }
+      // Also emit user:read for global listeners
       if (participants.length === 2) {
         const otherUserId = participants.find((id) => id !== userId);
         if (otherUserId) {
           io.to(`user:${otherUserId}`)
             .except(`channel:${channelKey}`)
             .emit("message:read", payload);
+          io.to(`user:${otherUserId}`).emit("user:read", payload);
         }
       }
     }
@@ -556,6 +564,12 @@ router.post("/:conversationId/read", requireAuth, async (req: any, res) => {
 // create a message (persist + broadcast)
 router.post("/", requireAuth, async (req: any, res) => {
   try {
+    const userId = req.user!.userId;
+    const { allowed } = await checkRateLimit(`rate:message:${userId}`, 30);
+    if (!allowed) {
+      return res.status(429).json({ message: "Too many messages. Slow down." });
+    }
+
     // support multiple client payload shapes:
     // 1) { conversationId, content, receiverId }
     // 2) { message: { conversationId, content, receiverId } }

@@ -5,6 +5,13 @@ import { requireAuth } from "../middleware/auth";
 import { getConfig } from "../lib/platformConfig";
 import { updateTrustScore } from "../lib/trustScore";
 import { getIo } from "../lib/socket";
+import {
+  cacheGet,
+  cacheSet,
+  CACHE_KEYS,
+  invalidateAllLobbyCaches,
+  checkRateLimit,
+} from "../services/redis";
 
 export const matchRouter = Router();
 
@@ -26,6 +33,14 @@ const CreateMatchSchema = z.object({
 // POST /matches  (create match + lock escrow)
 matchRouter.post("/", requireAuth, async (req, res) => {
   try {
+    const userId = req.user!.userId;
+    const { allowed } = await checkRateLimit(`rate:match:${userId}`, 10);
+    if (!allowed) {
+      return res
+        .status(429)
+        .json({ message: "Too many match creations. Try again later." });
+    }
+
     const {
       game,
       stake,
@@ -40,7 +55,6 @@ matchRouter.post("/", requireAuth, async (req, res) => {
       joinDeadlineAt,
       privateMatch,
     } = CreateMatchSchema.parse(req.body);
-    const userId = req.user!.userId;
 
     const parsedStartAt = startAt ? new Date(startAt) : null;
     const parsedJoinDeadlineAt = joinDeadlineAt
@@ -196,6 +210,7 @@ matchRouter.post("/", requireAuth, async (req, res) => {
       console.error("failed to create player log", err);
     }
 
+    await invalidateAllLobbyCaches();
     return res.status(201).json({
       match: result.match,
       wallet: result.updatedWallet,
@@ -209,6 +224,9 @@ matchRouter.post("/", requireAuth, async (req, res) => {
 // GET /matches/featured  (most popular open match by stake — public)
 matchRouter.get("/featured", async (_req, res) => {
   try {
+    const cached = await cacheGet<any>(CACHE_KEYS.matchFeatured);
+    if (cached) return res.json(cached);
+
     const match = await prisma.match.findFirst({
       where: { status: { in: ["OPEN", "UPCOMING"] }, joinerId: null },
       orderBy: { stake: "desc" },
@@ -221,7 +239,9 @@ matchRouter.get("/featured", async (_req, res) => {
         host: { select: { username: true } },
       },
     });
-    return res.json({ match: match ?? null });
+    const result = { match: match ?? null };
+    await cacheSet(CACHE_KEYS.matchFeatured, result, 30);
+    return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ message: err.message ?? "Server error" });
   }
@@ -337,6 +357,7 @@ matchRouter.post("/:id/join", requireAuth, async (req, res) => {
       // socket emit failure is non-fatal
     }
 
+    await invalidateAllLobbyCaches();
     res.status(200).json({ match: result });
   } catch (err: any) {
     res.status(400).json({ message: err.message });
@@ -408,6 +429,7 @@ matchRouter.post("/:id/report", requireAuth, async (req, res) => {
       console.error("failed to create player log", err);
     }
 
+    await invalidateAllLobbyCaches();
     return res.json({ match: updatedMatch });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });
@@ -472,6 +494,7 @@ matchRouter.delete("/:id", requireAuth, async (req, res) => {
       });
     });
 
+    await invalidateAllLobbyCaches();
     return res.json({ ok: true });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });
@@ -605,6 +628,7 @@ matchRouter.post("/:id/confirm", requireAuth, async (req, res) => {
       ]);
     }
 
+    await invalidateAllLobbyCaches();
     return res.json({ match: result });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });

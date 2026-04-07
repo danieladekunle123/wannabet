@@ -46,9 +46,9 @@ import {
   startEvent,
   submitMatchResult,
   uploadMatchEvidence,
-  uploadMatchEvidenceImage,
   type EventRecord,
 } from "../services/eventsService";
+import { uploadFile } from "../services/uploadService";
 
 type ViewMatchProps = {
   eventId: string;
@@ -91,7 +91,7 @@ function toStatus(value: string | undefined): MatchStatus {
 export function ViewMatch({ eventId, onBack, onOpenChat }: ViewMatchProps) {
   const { user } = useAuth();
   const { currency, rates } = useCurrency();
-  const { watchUsers } = usePresence();
+  const { watchUsers, socket } = usePresence();
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -132,6 +132,16 @@ export function ViewMatch({ eventId, onBack, onOpenChat }: ViewMatchProps) {
   useEffect(() => {
     void refresh();
   }, [eventId]);
+
+  // Real-time: refresh when any event is updated
+  useEffect(() => {
+    if (!socket) return;
+    const handler = () => void refresh();
+    socket.on("event:updated", handler);
+    return () => {
+      socket.off("event:updated", handler);
+    };
+  }, [socket, eventId]);
 
   useEffect(() => {
     setHasSubmittedResult(false);
@@ -655,11 +665,8 @@ export function ViewMatch({ eventId, onBack, onOpenChat }: ViewMatchProps) {
                 setImageUploading(true);
                 for (const file of evidenceImages) {
                   try {
-                    const result = await uploadMatchEvidenceImage({
-                      sourceId: event.sourceId,
-                      file,
-                    });
-                    newUrls.push(result.url);
+                    const fileUrl = await uploadFile(file, "evidence");
+                    newUrls.push(fileUrl);
                   } catch (err) {
                     const msg =
                       err instanceof Error ? err.message : "Upload failed";

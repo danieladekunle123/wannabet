@@ -9,7 +9,13 @@ import { prisma } from "../lib/prisma";
 import { env } from "../lib/env";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { updateTrustScore } from "../lib/trustScore";
-import { getIo } from "../lib/socket";
+import { getIo, emitEventUpdate } from "../lib/socket";
+import {
+  cacheGet,
+  cacheSet,
+  CACHE_KEYS,
+  invalidateAllLobbyCaches,
+} from "../services/redis";
 
 // ─── Dispute evidence file upload ────────────────────────────────────────────
 const disputeUploadDir = path.join(process.cwd(), "uploads", "disputes");
@@ -741,6 +747,15 @@ async function promoteStartedTournamentsToOngoing() {
   });
 }
 
+// Cached version of buildUnifiedEvents() for public endpoints
+async function getCachedPublicEvents(): Promise<EventDTO[]> {
+  const cached = await cacheGet<EventDTO[]>(CACHE_KEYS.allPublic);
+  if (cached) return cached;
+  const events = await buildUnifiedEvents();
+  await cacheSet(CACHE_KEYS.allPublic, events, 30);
+  return events;
+}
+
 eventsRouter.get("/my", requireAuth, async (req, res) => {
   try {
     const userId = req.user!.userId;
@@ -756,7 +771,7 @@ eventsRouter.get("/my", requireAuth, async (req, res) => {
 eventsRouter.get("/tournaments", async (_req, res) => {
   try {
     const viewerUserId = getOptionalUserIdFromRequest(_req);
-    const events = await buildUnifiedEvents();
+    const events = await getCachedPublicEvents();
     return res.json({
       events: events
         .filter(byType("tournament"))
@@ -773,7 +788,7 @@ eventsRouter.get("/tournaments", async (_req, res) => {
 eventsRouter.get("/scrims", async (_req, res) => {
   try {
     const viewerUserId = getOptionalUserIdFromRequest(_req);
-    const events = await buildUnifiedEvents();
+    const events = await getCachedPublicEvents();
     return res.json({
       events: events
         .filter(byType("scrim"))
@@ -790,7 +805,7 @@ eventsRouter.get("/scrims", async (_req, res) => {
 eventsRouter.get("/wagers", async (_req, res) => {
   try {
     const viewerUserId = getOptionalUserIdFromRequest(_req);
-    const events = await buildUnifiedEvents();
+    const events = await getCachedPublicEvents();
     return res.json({
       events: events
         .filter(byType("wager"))
@@ -807,7 +822,7 @@ eventsRouter.get("/wagers", async (_req, res) => {
 eventsRouter.get("/custom", async (_req, res) => {
   try {
     const viewerUserId = getOptionalUserIdFromRequest(_req);
-    const events = await buildUnifiedEvents();
+    const events = await getCachedPublicEvents();
     return res.json({
       events: events
         .filter(byType("custom"))
@@ -825,7 +840,7 @@ eventsRouter.get("/custom", async (_req, res) => {
 eventsRouter.get("/active", async (_req, res) => {
   try {
     const viewerUserId = getOptionalUserIdFromRequest(_req);
-    const events = await buildUnifiedEvents();
+    const events = await getCachedPublicEvents();
     return res.json({
       events: events
         .filter((event) => isActiveEventStatus(event.status))
@@ -1085,6 +1100,7 @@ eventsRouter.patch("/:sourceType/:id", requireAuth, async (req, res) => {
         },
       });
 
+      await invalidateAllLobbyCaches();
       return res.json({ ok: true });
     }
 
@@ -1128,6 +1144,7 @@ eventsRouter.patch("/:sourceType/:id", requireAuth, async (req, res) => {
       }
 
       const updated = await prisma.tournament.update({ where: { id }, data });
+      await invalidateAllLobbyCaches();
       return res.json({ event: updated });
     }
 
@@ -1211,6 +1228,7 @@ eventsRouter.post("/:sourceType/:id/join", requireAuth, async (req, res) => {
         return updated;
       });
 
+      await invalidateAllLobbyCaches();
       return res.json({ event: result });
     }
 
@@ -1305,6 +1323,7 @@ eventsRouter.post("/:sourceType/:id/join", requireAuth, async (req, res) => {
         });
       });
 
+      await invalidateAllLobbyCaches();
       return res.json({ ok: true });
     }
 
@@ -1340,6 +1359,7 @@ eventsRouter.post("/:sourceType/:id/start", requireAuth, async (req, res) => {
         where: { id },
         data: { status: "ONGOING" },
       });
+      await invalidateAllLobbyCaches();
       return res.json({ event: updated });
     }
 
@@ -1355,6 +1375,7 @@ eventsRouter.post("/:sourceType/:id/start", requireAuth, async (req, res) => {
         where: { id },
         data: { status: "ongoing" },
       });
+      await invalidateAllLobbyCaches();
       return res.json({ event: updated });
     }
 
@@ -1390,6 +1411,7 @@ eventsRouter.patch("/:id/start", requireAuth, async (req, res) => {
       data: { status: "ONGOING" },
     });
 
+    await invalidateAllLobbyCaches();
     return res.json({ event: updated });
   } catch (err: any) {
     return res
@@ -1566,6 +1588,7 @@ eventsRouter.post("/:id/submit-result", requireAuth, async (req, res) => {
       });
     });
 
+    await invalidateAllLobbyCaches();
     return res.json({
       ok: true,
       status: "completed",
@@ -1752,6 +1775,7 @@ eventsRouter.post("/match/:id/report", requireAuth, async (req, res) => {
       },
     });
 
+    await invalidateAllLobbyCaches();
     return res.json({ event: updated });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Failed to report" });
@@ -1793,6 +1817,7 @@ eventsRouter.post("/match/:id/verify", requireAuth, async (req, res) => {
       },
     });
 
+    await invalidateAllLobbyCaches();
     return res.json({ event: updated });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Failed to verify" });
@@ -1851,6 +1876,7 @@ eventsRouter.post(
           });
         });
 
+        await invalidateAllLobbyCaches();
         return res.json({ event: updated });
       }
 
@@ -1866,6 +1892,7 @@ eventsRouter.post(
           where: { id },
           data: { status: "completed" },
         });
+        await invalidateAllLobbyCaches();
         return res.json({ event: updated });
       }
 
@@ -1916,6 +1943,7 @@ eventsRouter.post("/:sourceType/:id/cancel", requireAuth, async (req, res) => {
         });
       });
 
+      await invalidateAllLobbyCaches();
       return res.json({ event: updated });
     }
 
@@ -1953,6 +1981,7 @@ eventsRouter.post("/:sourceType/:id/cancel", requireAuth, async (req, res) => {
         });
       });
 
+      await invalidateAllLobbyCaches();
       return res.json({ event: updated });
     }
 
@@ -2023,6 +2052,7 @@ eventsRouter.post("/:sourceType/:id/leave", requireAuth, async (req, res) => {
         });
       });
 
+      await invalidateAllLobbyCaches();
       return res.json({ ok: true });
     }
 
@@ -2098,6 +2128,7 @@ eventsRouter.post("/:sourceType/:id/leave", requireAuth, async (req, res) => {
           });
         });
 
+        await invalidateAllLobbyCaches();
         return res.json({ ok: true });
       }
 
@@ -2125,6 +2156,7 @@ eventsRouter.post("/:sourceType/:id/leave", requireAuth, async (req, res) => {
           });
         });
 
+        await invalidateAllLobbyCaches();
         return res.json({
           event: updated,
           message: "You forfeited this match.",
@@ -2249,6 +2281,7 @@ eventsRouter.post("/requests/match", requireAuth, async (req, res) => {
       // socket emit failure is non-fatal
     }
 
+    await invalidateAllLobbyCaches();
     return res.status(201).json({ request: created });
   } catch (err: any) {
     return res
@@ -2539,6 +2572,7 @@ eventsRouter.patch("/requests/match/:id", requireAuth, async (req, res) => {
       });
     }
 
+    await invalidateAllLobbyCaches();
     return res.json({ ok: true, status: nextStatus, matchId: createdMatchId });
   } catch (err: any) {
     return res
@@ -2701,6 +2735,7 @@ eventsRouter.post(
         );
       }
 
+      await invalidateAllLobbyCaches();
       return res.json({ ok: true });
     } catch (err: any) {
       console.error("[disputes/resolve]", err);

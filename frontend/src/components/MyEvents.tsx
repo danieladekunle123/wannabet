@@ -59,6 +59,7 @@ import {
   type EventRecord,
 } from "../services/eventsService";
 import { MatchRequestsPanel } from "./MatchRequestsPanel";
+import { usePresence } from "../context/PresenceContext";
 import { useTranslation } from "react-i18next";
 
 interface MyEventsProps {
@@ -167,6 +168,17 @@ export function MyEvents({ onNavigate, initialTab = "all" }: MyEventsProps) {
   useEffect(() => {
     fetchMyEvents();
   }, []);
+
+  // Real-time: refresh when any event is updated
+  const { socket } = usePresence();
+  useEffect(() => {
+    if (!socket) return;
+    const handler = () => void fetchMyEvents();
+    socket.on("event:updated", handler);
+    return () => {
+      socket.off("event:updated", handler);
+    };
+  }, [socket]);
 
   useEffect(() => {
     setActiveTab(initialTab || "all");
@@ -476,14 +488,16 @@ export function MyEvents({ onNavigate, initialTab = "all" }: MyEventsProps) {
         <Card className="border-primary/30">
           <CardContent className="p-4">
             <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder={t("my_events.search_placeholder")}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 bg-muted/30 border-border/50 focus:border-primary/50"
-                />
+              <div className="flex-1">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder={t("my_events.search_placeholder")}
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10 bg-muted/30 border-border/50 focus:border-primary/50"
+                  />
+                </div>
               </div>
               <div className="flex flex-wrap gap-2 w-full md:w-auto">
                 <Select value={filterRole} onValueChange={setFilterRole}>

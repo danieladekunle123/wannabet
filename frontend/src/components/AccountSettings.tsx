@@ -57,6 +57,7 @@ import { useAuth } from "./AuthContext";
 import { UserAvatar } from "./UserAvatar";
 import { GifPicker } from "./GifPicker";
 import api from "../lib/api";
+import { uploadFile } from "../services/uploadService";
 import { usePresence, type UserStatus } from "../context/PresenceContext";
 
 interface AccountSettingsProps {
@@ -210,7 +211,8 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
 
     setIsUploadingAvatar(true);
     try {
-      await api.uploadMyProfileImage(file);
+      const url = await uploadFile(file, "profile");
+      await api.setMyProfileImageUrl(url);
       await refreshUser();
     } catch (err) {
       console.error(err);

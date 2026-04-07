@@ -350,12 +350,14 @@ function AppContent() {
 
     socket.on("message", syncUnread);
     socket.on("message:read", syncUnread);
+    socket.on("user:read", syncUnread);
     socket.on("message:update", syncUnread);
     socket.on("message:delete", syncUnread);
 
     return () => {
       socket.off("message", syncUnread);
       socket.off("message:read", syncUnread);
+      socket.off("user:read", syncUnread);
       socket.off("message:update", syncUnread);
       socket.off("message:delete", syncUnread);
       socket.disconnect();

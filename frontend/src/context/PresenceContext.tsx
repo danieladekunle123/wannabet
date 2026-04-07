@@ -16,6 +16,9 @@ type PresenceContextType = {
   getLastSeen: (userId: string) => string | null;
   setManualStatus: (status: UserStatus) => Promise<void>;
   watchUsers: (userIds: string[]) => void;
+  isUserOnline: (userId: string) => boolean;
+  onlineUsers: Set<string>;
+  socket: Socket | null;
 };
 
 const PresenceContext = createContext<PresenceContextType>({
@@ -23,6 +26,9 @@ const PresenceContext = createContext<PresenceContextType>({
   getLastSeen: () => null,
   setManualStatus: async () => {},
   watchUsers: () => {},
+  isUserOnline: () => false,
+  onlineUsers: new Set(),
+  socket: null,
 });
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
@@ -31,6 +37,7 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuth();
   const [statuses, setStatuses] = useState<Record<string, UserStatus>>({});
   const [lastSeens, setLastSeens] = useState<Record<string, string | null>>({});
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const socketRef = useRef<Socket | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const watchedRef = useRef<Set<string>>(new Set());
@@ -89,11 +96,26 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
 
     socket.on("user:offline", ({ userId }: { userId: string }) => {
       setStatuses((prev) => ({ ...prev, [userId]: "offline" }));
+      setOnlineUsers((prev) => {
+        const next = new Set(prev);
+        next.delete(userId);
+        return next;
+      });
+    });
+
+    socket.on("user:online", ({ userId }: { userId: string }) => {
+      setStatuses((prev) => ({ ...prev, [userId]: "online" }));
+      setOnlineUsers((prev) => {
+        const next = new Set(prev);
+        next.add(userId);
+        return next;
+      });
     });
 
     // Activity heartbeat every 30 s
     heartbeatRef.current = setInterval(() => {
       socket.emit("activity_ping");
+      socket.emit("heartbeat");
     }, 30_000);
 
     return () => {
@@ -133,9 +155,22 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
     [user?.id],
   );
 
+  const isUserOnline = useCallback(
+    (userId: string): boolean => onlineUsers.has(userId),
+    [onlineUsers],
+  );
+
   return (
     <PresenceContext.Provider
-      value={{ getStatus, getLastSeen, setManualStatus, watchUsers }}
+      value={{
+        getStatus,
+        getLastSeen,
+        setManualStatus,
+        watchUsers,
+        isUserOnline,
+        onlineUsers,
+        socket: socketRef.current,
+      }}
     >
       {children}
     </PresenceContext.Provider>

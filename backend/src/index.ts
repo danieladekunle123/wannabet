@@ -16,6 +16,19 @@ import {
 } from "./lib/presence";
 import { env } from "./lib/env";
 import { getConfig } from "./lib/platformConfig";
+import {
+  setUserOnline,
+  setUserOffline,
+  setUserStatus,
+  isUserOnline,
+  setLastSeen,
+  getLastSeen,
+  setTyping,
+  getOnlineUsers,
+  publishPresence,
+  subscribePresence,
+  redis,
+} from "./services/redis";
 import { authRouter } from "./routes/auth.routes";
 import { userRouter } from "./routes/user.routes";
 import { walletRouter } from "./routes/wallet.routes";
@@ -31,6 +44,7 @@ import { teamsRouter } from "./routes/teams.routes";
 import { stripeRouter } from "./routes/stripe.routes";
 import { leaderboardRouter } from "./routes/leaderboard.routes";
 import { disputeRouter } from "./routes/dispute.routes";
+import { uploadRouter } from "./routes/upload.routes";
 
 const app = express();
 const server = http.createServer(app);
@@ -153,6 +167,32 @@ app.use("/search", searchRouter);
 app.use("/api/region", regionRouter);
 app.use("/api/regions", regionsRouter);
 app.use("/api/esports", esportsRouter);
+app.use("/api", uploadRouter);
+
+// ── Temporary debug route for Redis testing ──────────────────────────────────
+app.get("/debug/redis", async (_req, res) => {
+  try {
+    await setUserOnline("user1");
+    await setUserOnline("user2");
+    const results = await getOnlineUsers(["user1", "user2", "user3"]);
+    return res.json({ results });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/debug/lastseen/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const [online, lastSeen] = await Promise.all([
+      isUserOnline(userId),
+      getLastSeen(userId),
+    ]);
+    return res.json({ online, lastSeen });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 const io = new IOServer(server, {
   cors: {
@@ -181,10 +221,19 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   console.log("socket connected:", socket.id);
   const userId = (socket as any).data.userId as string | undefined;
+  console.log("[Socket] userId:", userId);
 
   if (userId) {
     // join personal room
     socket.join(`user:${userId}`);
+
+    // Redis presence: mark online with 5-min TTL
+    console.log("[Redis] setUserOnline:", userId);
+    setUserOnline(userId).catch(() => {});
+    console.log("[Socket] user online broadcast:", userId);
+    publishPresence({ type: "online", userId, status: "online" }).catch(
+      () => {},
+    );
 
     // Load persisted manualStatus from DB (fire-and-forget)
     prisma.profile
@@ -193,6 +242,7 @@ io.on("connection", (socket) => {
         const manual = p?.manualStatus ?? null;
         setPresence(userId, socket.id, manual);
         // Broadcast to everyone that this user is online/dnd
+        io.emit("user:online", { userId });
         io.emit("user:status_change", {
           userId,
           status: getUserStatus(userId),
@@ -200,6 +250,7 @@ io.on("connection", (socket) => {
       })
       .catch(() => {
         setPresence(userId, socket.id, null);
+        io.emit("user:online", { userId });
         io.emit("user:status_change", { userId, status: "online" });
       });
   }
@@ -207,6 +258,14 @@ io.on("connection", (socket) => {
   // Activity heartbeat
   socket.on("activity_ping", () => {
     if (userId) updateActivity(userId);
+  });
+
+  // Redis heartbeat: refresh 5-min TTL
+  socket.on("heartbeat", () => {
+    if (userId) {
+      console.log("[Heartbeat] refreshing:", userId);
+      setUserOnline(userId).catch(() => {});
+    }
   });
 
   // Manual status change
@@ -218,8 +277,22 @@ io.on("connection", (socket) => {
     const manual = status === "online" || status === "idle" ? null : status;
     setManualStatus(userId, manual);
 
+    // Sync to Redis
+    if (status === "dnd") {
+      setUserStatus(userId, "dnd").catch(() => {});
+    } else if (status === "idle") {
+      setUserStatus(userId, "away").catch(() => {});
+    } else if (status === "online") {
+      setUserOnline(userId).catch(() => {});
+    }
+
     const resolved = getUserStatus(userId);
     io.emit("user:status_change", { userId, status: resolved });
+    publishPresence({
+      type: "status_change",
+      userId,
+      status: resolved as any,
+    }).catch(() => {});
 
     // Persist to DB (fire-and-forget)
     prisma.profile
@@ -246,10 +319,20 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Typing indicator: stores in Redis with 3s TTL, broadcasts to chat room
+  socket.on("typing", ({ chatId }: { chatId: string }) => {
+    if (!userId || !chatId) return;
+    setTyping(chatId, userId).catch(() => {});
+    socket.to(chatId).emit("user:typing", { userId, chatId });
+  });
+
   socket.on("disconnect", () => {
-    console.log("socket disconnected:", socket.id);
+    console.log("[Socket] disconnected:", userId);
     if (!userId) return;
     removePresence(userId);
+
+    // Store last seen in Redis
+    setLastSeen(userId).catch(() => {});
 
     // Update lastSeen in DB (fire-and-forget)
     prisma.profile
@@ -260,8 +343,8 @@ io.on("connection", (socket) => {
       })
       .catch(() => {});
 
-    io.emit("user:offline", { userId });
-    io.emit("user:status_change", { userId, status: "offline" });
+    // Online status controlled solely by Redis TTL + heartbeat.
+    // The periodic offline checker will emit user:offline once the key expires.
   });
 });
 
@@ -279,6 +362,56 @@ setInterval(() => {
 }, 60_000);
 
 setIo(io);
+
+// ── Redis Pub/Sub: sync presence across multiple servers ─────────────────────
+subscribePresence((msg) => {
+  switch (msg.type) {
+    case "online":
+      io.emit("user:online", { userId: msg.userId });
+      io.emit("user:status_change", {
+        userId: msg.userId,
+        status: msg.status || "online",
+      });
+      break;
+    case "offline":
+      io.emit("user:offline", { userId: msg.userId });
+      io.emit("user:status_change", { userId: msg.userId, status: "offline" });
+      break;
+    case "status_change":
+      io.emit("user:status_change", {
+        userId: msg.userId,
+        status: msg.status || "offline",
+      });
+      break;
+  }
+});
+
+// ── Periodic Redis offline check: every 30 s ─────────────────────────────────
+const knownOnlineUsers = new Set<string>();
+
+setInterval(async () => {
+  try {
+    const allUserIds = Array.from(getAllPresence().keys());
+    // Also include users we previously knew as online
+    const checkIds = Array.from(new Set([...allUserIds, ...knownOnlineUsers]));
+    if (!checkIds.length) return;
+
+    const onlineMap = await getOnlineUsers(checkIds);
+
+    for (const uid of checkIds) {
+      if (onlineMap[uid] !== "offline") {
+        knownOnlineUsers.add(uid);
+      } else if (knownOnlineUsers.has(uid)) {
+        knownOnlineUsers.delete(uid);
+        console.log("[Socket] user offline broadcast:", uid);
+        io.emit("user:offline", { userId: uid });
+        io.emit("user:status_change", { userId: uid, status: "offline" });
+      }
+    }
+  } catch (err) {
+    console.error("[OfflineCheck] error:", err);
+  }
+}, 30_000);
 
 // ── Event-start reminder scheduler ───────────────────────────────────────────
 // Runs every 60 seconds. Emits notification:new to tournament participants

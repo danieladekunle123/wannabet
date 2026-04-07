@@ -36,6 +36,8 @@ import { GifPicker } from "./GifPicker";
 import { UserAvatar } from "./UserAvatar";
 import { StatusDot } from "./StatusDot";
 import { usePresence } from "../context/PresenceContext";
+import { formatTimeAgo } from "../utils/formatTimeAgo";
+import { uploadFile } from "../services/uploadService";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -99,13 +101,15 @@ export function Messages({
   const GIPHY_API_KEY =
     import.meta.env.VITE_GIPHY_API_KEY || "wYChZ0CXRzFrNp3kVR2bzsAqFHeBWyh2";
   const { user, token } = useAuth();
-  const { getStatus, watchUsers } = usePresence();
+  const { getStatus, getLastSeen, watchUsers } = usePresence();
   const [selectedConversation, setSelectedConversation] = useState<string>("");
   const [messageInput, setMessageInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [typingUserId, setTypingUserId] = useState<string | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const [messagesState, setMessagesState] = useState<Message[]>([]);
   const prevConversationRef = useRef<string | null>(null);
@@ -710,9 +714,28 @@ export function Messages({
     s.on("message:read", (payload: any) => {
       applyReadReceipt(payload || {});
     });
+    s.on("user:read", (payload: any) => {
+      applyReadReceipt(payload || {});
+    });
+
+    s.on(
+      "user:typing",
+      ({ userId: typerId, chatId }: { userId: string; chatId: string }) => {
+        if (typerId === user?.id) return;
+        setTypingUserId(typerId);
+        setIsTyping(true);
+        // Auto-clear after 3s (matches Redis TTL)
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          setIsTyping(false);
+          setTypingUserId(null);
+        }, 3000);
+      },
+    );
 
     return () => {
       s.disconnect();
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, [token, user?.id]);
 
@@ -1019,21 +1042,11 @@ export function Messages({
 
     setIsUploadingMedia(true);
     try {
-      const form = new FormData();
-      form.append("file", file);
-
-      const res = await fetch(`${API_URL}/messages/upload`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${authToken}` },
-        body: form,
-      });
-      if (!res.ok) throw new Error("upload failed");
-
-      const data = await res.json();
-      await sendMessage({
-        messageType: data.messageType,
-        mediaUrl: data.mediaUrl,
-      });
+      const url = await uploadFile(file, "message");
+      const messageType: "image" | "video" = file.type.startsWith("video/")
+        ? "video"
+        : "image";
+      await sendMessage({ messageType, mediaUrl: url });
     } catch (error) {
       console.error("media upload failed", error);
     } finally {
@@ -1524,9 +1537,18 @@ export function Messages({
                                           : st === "dnd"
                                             ? "bg-red-500"
                                             : "bg-gray-400";
-                                    return st !== "offline" ? (
+                                    const dotTitle =
+                                      st === "online"
+                                        ? "Online"
+                                        : st === "idle"
+                                          ? "Idle"
+                                          : st === "dnd"
+                                            ? "Do Not Disturb"
+                                            : "Offline";
+                                    return (
                                       <motion.div
                                         className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 ${dotColor} rounded-full border-2 border-background shadow-lg`}
+                                        title={dotTitle}
                                         animate={
                                           st === "online"
                                             ? { scale: [1, 1.2, 1] }
@@ -1537,7 +1559,7 @@ export function Messages({
                                           repeat: Infinity,
                                         }}
                                       />
-                                    ) : null;
+                                    );
                                   })()}
                               </div>
 
@@ -1597,6 +1619,26 @@ export function Messages({
                                     </Badge>
                                   )}
                                 </div>
+                                {conversation.type === "direct" &&
+                                  (() => {
+                                    const otherId = getDmOtherUserId(
+                                      conversation.id,
+                                    );
+                                    const st = otherId
+                                      ? getStatus(otherId)
+                                      : "offline";
+                                    const ls = otherId
+                                      ? getLastSeen(otherId)
+                                      : null;
+                                    if (st === "offline" && ls) {
+                                      return (
+                                        <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                                          Last seen {formatTimeAgo(ls)}
+                                        </p>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                               </div>
                             </div>
                           </Button>
@@ -1893,7 +1935,11 @@ export function Messages({
                                                 message.mediaUrl,
                                               )}
                                               alt="GIF"
-                                              className="max-w-[280px] sm:max-w-[340px] rounded-lg"
+                                              style={{
+                                                maxWidth: 128,
+                                                maxHeight: 128,
+                                              }}
+                                              className="rounded-lg object-contain"
                                             />
                                           )}
                                         {message.messageType === "image" &&
@@ -1903,7 +1949,11 @@ export function Messages({
                                                 message.mediaUrl,
                                               )}
                                               alt="Image"
-                                              className="max-w-[280px] sm:max-w-[340px] rounded-lg"
+                                              style={{
+                                                maxWidth: 128,
+                                                maxHeight: 128,
+                                              }}
+                                              className="rounded-lg object-contain"
                                             />
                                           )}
                                         {message.messageType === "video" &&
@@ -1913,7 +1963,11 @@ export function Messages({
                                                 message.mediaUrl,
                                               )}
                                               controls
-                                              className="max-w-[280px] sm:max-w-[340px] rounded-lg"
+                                              style={{
+                                                maxWidth: 128,
+                                                maxHeight: 128,
+                                              }}
+                                              className="rounded-lg"
                                             />
                                           )}
                                         {message.content && (
@@ -2094,7 +2148,14 @@ export function Messages({
                       <Input
                         placeholder={`Message ${activeConversation.name}...`}
                         value={messageInput}
-                        onChange={(e) => setMessageInput(e.target.value)}
+                        onChange={(e) => {
+                          setMessageInput(e.target.value);
+                          if (socketRef.current && selectedConversation) {
+                            socketRef.current.emit("typing", {
+                              chatId: `channel:${selectedConversation}`,
+                            });
+                          }
+                        }}
                         onKeyPress={(e) =>
                           e.key === "Enter" && handleSendMessage()
                         }
@@ -2308,9 +2369,18 @@ export function Messages({
                                         : st === "dnd"
                                           ? "bg-red-500"
                                           : "bg-gray-400";
-                                  return st !== "offline" ? (
+                                  const dotTitle =
+                                    st === "online"
+                                      ? "Online"
+                                      : st === "idle"
+                                        ? "Idle"
+                                        : st === "dnd"
+                                          ? "Do Not Disturb"
+                                          : "Offline";
+                                  return (
                                     <motion.div
                                       className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 ${dotColor} rounded-full border-2 border-background shadow-lg`}
+                                      title={dotTitle}
                                       animate={
                                         st === "online"
                                           ? { scale: [1, 1.2, 1] }
@@ -2321,7 +2391,7 @@ export function Messages({
                                         repeat: Infinity,
                                       }}
                                     />
-                                  ) : null;
+                                  );
                                 })()}
                             </div>
 
@@ -2381,6 +2451,26 @@ export function Messages({
                                   </Badge>
                                 )}
                               </div>
+                              {conversation.type === "direct" &&
+                                (() => {
+                                  const otherId = getDmOtherUserId(
+                                    conversation.id,
+                                  );
+                                  const st = otherId
+                                    ? getStatus(otherId)
+                                    : "offline";
+                                  const ls = otherId
+                                    ? getLastSeen(otherId)
+                                    : null;
+                                  if (st === "offline" && ls) {
+                                    return (
+                                      <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                                        Last seen {formatTimeAgo(ls)}
+                                      </p>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                             </div>
                           </div>
                         </Button>
@@ -2658,7 +2748,11 @@ export function Messages({
                                                   message.mediaUrl,
                                                 )}
                                                 alt="GIF"
-                                                className="max-w-[340px] lg:max-w-[420px] rounded-lg"
+                                                style={{
+                                                  maxWidth: 160,
+                                                  maxHeight: 160,
+                                                }}
+                                                className="rounded-lg object-contain"
                                               />
                                             )}
                                           {message.messageType === "image" &&
@@ -2668,7 +2762,11 @@ export function Messages({
                                                   message.mediaUrl,
                                                 )}
                                                 alt="Image"
-                                                className="max-w-[340px] lg:max-w-[420px] rounded-lg"
+                                                style={{
+                                                  maxWidth: 160,
+                                                  maxHeight: 160,
+                                                }}
+                                                className="rounded-lg object-contain"
                                               />
                                             )}
                                           {message.messageType === "video" &&
@@ -2678,7 +2776,11 @@ export function Messages({
                                                   message.mediaUrl,
                                                 )}
                                                 controls
-                                                className="max-w-[340px] lg:max-w-[420px] rounded-lg"
+                                                style={{
+                                                  maxWidth: 160,
+                                                  maxHeight: 160,
+                                                }}
+                                                className="rounded-lg"
                                               />
                                             )}
                                           {message.content && (
@@ -2862,7 +2964,14 @@ export function Messages({
                         <Input
                           placeholder={`Message ${activeConversation?.name || "conversation"}...`}
                           value={messageInput}
-                          onChange={(e) => setMessageInput(e.target.value)}
+                          onChange={(e) => {
+                            setMessageInput(e.target.value);
+                            if (socketRef.current && selectedConversation) {
+                              socketRef.current.emit("typing", {
+                                chatId: `channel:${selectedConversation}`,
+                              });
+                            }
+                          }}
                           onKeyPress={(e) =>
                             e.key === "Enter" && handleSendMessage()
                           }

@@ -54,6 +54,7 @@ interface PublicProfileProps {
 import api from "../lib/api";
 import { usePresence } from "../context/PresenceContext";
 import { useStatusColor } from "./StatusDot";
+import { formatTimeAgo } from "../utils/formatTimeAgo";
 
 const emptyFallback = {
   username: "Player",
@@ -90,7 +91,7 @@ export function PublicProfile({
   isOwnProfile = false,
 }: PublicProfileProps) {
   const { user, token } = useAuth();
-  const { watchUsers, getStatus } = usePresence();
+  const { watchUsers, getStatus, getLastSeen } = usePresence();
   const { currency, rates } = useCurrency();
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
@@ -615,6 +616,14 @@ export function PublicProfile({
                 <p className="text-sm text-muted-foreground mb-3">
                   {profile.bio}
                 </p>
+
+                {profileStatusId &&
+                  getStatus(profileStatusId) === "offline" &&
+                  getLastSeen(profileStatusId) && (
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Last seen {formatTimeAgo(getLastSeen(profileStatusId)!)}
+                    </p>
+                  )}
 
                 <div className="flex flex-wrap items-center gap-3 text-sm mb-3">
                   <Badge variant="outline" className="flex items-center">

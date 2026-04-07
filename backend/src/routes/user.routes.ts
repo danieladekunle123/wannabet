@@ -11,6 +11,7 @@ import { resolveClientIp } from "../lib/clientIp";
 import { getIo } from "../lib/socket";
 import { getConfig, invalidateConfigCache } from "../lib/platformConfig";
 import { getUserStatus } from "../lib/presence";
+import { getOnlineUsers, isUserOnline } from "../services/redis";
 
 export const userRouter = Router();
 
@@ -2074,9 +2075,17 @@ userRouter.get("/presence", async (req, res) => {
       { status: "online" | "idle" | "dnd" | "offline"; lastSeen: string | null }
     > = {};
 
+    // Check Redis for users the in-memory map may have dropped
+    const redisOnline = await getOnlineUsers(userIds);
+
     for (const uid of userIds) {
+      const memStatus = getUserStatus(uid);
+      const redisStatus = redisOnline[uid];
       presence[uid] = {
-        status: getUserStatus(uid),
+        status:
+          memStatus === "offline" && redisStatus !== "offline"
+            ? redisStatus
+            : memStatus,
         lastSeen: lastSeenMap[uid] ?? null,
       };
     }
@@ -2085,6 +2094,17 @@ userRouter.get("/presence", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: "Failed to fetch presence" });
+  }
+});
+
+// ── GET /users/:id/status ─────────────────────────────────────────────────────
+userRouter.get("/:id/status", async (req, res) => {
+  try {
+    const result = await isUserOnline(req.params.id);
+    return res.json(result);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Failed to check status" });
   }
 });
 

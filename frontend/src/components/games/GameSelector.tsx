@@ -158,7 +158,7 @@ export function GameSelector({
       )}
 
       {open && (
-        <div className="absolute z-30 mt-2 w-full rounded-md border border-border bg-card shadow-xl max-h-80 overflow-y-auto">
+        <div className="absolute z-50 mt-2 w-full rounded-md border border-border bg-card shadow-xl max-h-80 overflow-y-auto">
           {loading && (
             <div className="px-3 py-4 text-sm text-muted-foreground flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />

@@ -47,6 +47,7 @@ import {
   buildMatchmakingRegionOptions,
   DEFAULT_MATCHMAKING_REGIONS,
 } from "../lib/matchmakingRegions";
+import { usePresence } from "../context/PresenceContext";
 
 interface LobbiesProps {
   onNavigate?: (tab: string) => void;
@@ -54,6 +55,7 @@ interface LobbiesProps {
 
 export function Lobbies({ onNavigate }: LobbiesProps = {}) {
   const { user } = useAuth();
+  const { socket } = usePresence();
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [trustScoreByHost, setTrustScoreByHost] = useState<
     Record<string, number>
@@ -106,6 +108,21 @@ export function Lobbies({ onNavigate }: LobbiesProps = {}) {
       cancelled = true;
     };
   }, []);
+
+  // Real-time: refresh when any event is updated
+  useEffect(() => {
+    if (!socket) return;
+    const handler = async () => {
+      try {
+        const data = await getActiveEvents();
+        setEvents(data);
+      } catch {}
+    };
+    socket.on("event:updated", handler);
+    return () => {
+      socket.off("event:updated", handler);
+    };
+  }, [socket]);
 
   // Fetch RAWG covers for main grid event cards
   useEffect(() => {
