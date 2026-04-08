@@ -1,9 +1,10 @@
-import express from "express";
-import cors from "cors";
 import http from "http";
 import path from "path";
+import express from "express";
 import { Server as IOServer } from "socket.io";
 import jwt from "jsonwebtoken";
+import app from "./app";
+import { env } from "./lib/env";
 import { setIo } from "./lib/socket";
 import { prisma } from "./lib/prisma";
 import {
@@ -14,8 +15,6 @@ import {
   getUserStatus,
   getAllPresence,
 } from "./lib/presence";
-import { env } from "./lib/env";
-import { getConfig } from "./lib/platformConfig";
 import {
   setUserOnline,
   setUserOffline,
@@ -29,94 +28,26 @@ import {
   subscribePresence,
   redis,
 } from "./services/redis";
-import { authRouter } from "./routes/auth.routes";
-import { userRouter } from "./routes/user.routes";
-import { walletRouter } from "./routes/wallet.routes";
-import { messagesRouter } from "./routes/messages.routes";
-import { matchRouter } from "./routes/match.routes";
-import { tournamentRouter } from "./routes/tournament.routes";
-import { eventsRouter } from "./routes/events.routes";
-import { searchRouter } from "./routes/search.routes";
-import { regionRouter } from "./routes/region.routes";
-import { regionsRouter } from "./routes/regions.routes";
-import { esportsRouter } from "./routes/esports.routes";
-import { teamsRouter } from "./routes/teams.routes";
-import { stripeRouter } from "./routes/stripe.routes";
-import { leaderboardRouter } from "./routes/leaderboard.routes";
-import { disputeRouter } from "./routes/dispute.routes";
-import { uploadRouter } from "./routes/upload.routes";
 
-const app = express();
 const server = http.createServer(app);
 
-// Required for accurate client IP extraction when behind reverse proxies/CDNs.
-app.set("trust proxy", true);
-
-const corsOrigins = env.CORS_ORIGIN.split(",").map((s) => s.trim());
-
-app.use(
-  cors({
-    origin: corsOrigins,
+const io = new IOServer(server, {
+  cors: {
+    origin: env.CORS_ORIGIN.split(",").map((s) => s.trim()),
     credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  }),
-);
-
-// Stripe webhook must receive raw body — mount before express.json()
-app.use(
-  "/stripe/webhook",
-  express.raw({ type: "application/json" }),
-  (req, _res, next) => {
-    // Expose rawBody for webhook signature verification
-    (req as any).rawBody = req.body;
-    next();
   },
-);
-
-app.use(express.json());
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
-
-// Maintenance mode — blocks all routes except /health and /users/admin/*
-app.use(async (req, res, next) => {
-  // Always allow health checks, admin routes, and stripe webhooks
-  if (
-    req.path === "/health" ||
-    req.path.startsWith("/users/admin") ||
-    req.path.startsWith("/users/config") ||
-    req.path.startsWith("/stripe")
-  ) {
-    return next();
-  }
-  try {
-    const config = await getConfig();
-    if (config.maintenanceMode) {
-      return res.status(503).json({
-        message:
-          "Platform is currently under maintenance. Please check back soon.",
-      });
-    }
-  } catch {
-    // Config fetch failure should not block requests
-  }
-  return next();
 });
 
-app.use("/stripe", stripeRouter);
-app.use("/wallet", walletRouter);
-app.use("/matches", matchRouter);
-app.use("/disputes", disputeRouter);
-app.use("/tournaments", tournamentRouter);
-app.use("/events", eventsRouter);
-import http from "http";
-import { Server as IOServer } from "socket.io";
-import app from "./app";
-import { env } from "./lib/env";
-import { setIo } from "./lib/socket";
-import { getAllPresence, getUserStatus } from "./lib/presence";
-import { getOnlineUsers, subscribePresence } from "./services/redis";
-app.use("/auth", authRouter);
-const server = http.createServer(app);
+// Socket.io JWT auth middleware
+io.use((socket, next) => {
+  try {
+    const token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.replace("Bearer ", "");
+    if (!token) return next(new Error("Authentication error"));
+    const decoded = jwt.verify(token, env.JWT_SECRET) as { userId: string };
+    (socket as any).data = { userId: decoded.userId };
+    return next();
   } catch (err) {
     return next(new Error("Authentication error"));
   }
