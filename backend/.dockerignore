@@ -1,0 +1,14 @@
+node_modules
+.env
+.env.*
+dist
+coverage
+.git
+.gitignore
+*.md
+tests
+uploads/messages/*
+uploads/profiles/*
+uploads/teams/*
+uploads/disputes/*
+uploads/bug-reports/*

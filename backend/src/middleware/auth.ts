@@ -13,7 +13,11 @@ declare global {
   }
 }
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+export async function requireAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   const header = req.headers.authorization;
 
   if (!header?.startsWith("Bearer ")) {
@@ -36,10 +40,16 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         },
       });
       if (activeBan) {
-        return res.status(403).json({ message: 'Account is banned', reason: activeBan.reason, expiresAt: activeBan.expiresAt });
+        return res
+          .status(403)
+          .json({
+            message: "Account is banned",
+            reason: activeBan.reason,
+            expiresAt: activeBan.expiresAt,
+          });
       }
     } catch (err) {
-      console.error('Failed to check ban status', err);
+      console.error("Failed to check ban status", err);
       // allow to continue auth if ban check fails, but log it
     }
 
@@ -49,30 +59,36 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
-export function requireRole(requiredRole: 'ADMIN' | 'MODERATOR' | 'PLAYER') {
+export function requireRole(requiredRole: "ADMIN" | "MODERATOR" | "PLAYER") {
   return async (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
+    if (!req.user)
+      return res.status(401).json({ message: "Not authenticated" });
 
     try {
-      const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
-      if (!user) return res.status(404).json({ message: 'User not found' });
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.userId },
+      });
+      if (!user) return res.status(404).json({ message: "User not found" });
 
-      const role = user.role as 'ADMIN' | 'MODERATOR' | 'PLAYER';
+      const role = user.role as "ADMIN" | "MODERATOR" | "PLAYER";
 
       // ADMIN has all privileges. MODERATOR has moderator privileges but not admin.
-      if (requiredRole === 'ADMIN' && role !== 'ADMIN') {
-        return res.status(403).json({ message: 'Admin role required' });
+      if (requiredRole === "ADMIN" && role !== "ADMIN") {
+        return res.status(403).json({ message: "Admin role required" });
       }
 
-      if (requiredRole === 'MODERATOR' && !(role === 'MODERATOR' || role === 'ADMIN')) {
-        return res.status(403).json({ message: 'Moderator role required' });
+      if (
+        requiredRole === "MODERATOR" &&
+        !(role === "MODERATOR" || role === "ADMIN")
+      ) {
+        return res.status(403).json({ message: "Moderator role required" });
       }
 
       // PLAYER requirement passes for any authenticated user
       next();
     } catch (err) {
       console.error(err);
-      return res.status(500).json({ message: 'Failed to verify role' });
+      return res.status(500).json({ message: "Failed to verify role" });
     }
   };
 }

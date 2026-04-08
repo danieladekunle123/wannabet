@@ -108,111 +108,15 @@ app.use("/matches", matchRouter);
 app.use("/disputes", disputeRouter);
 app.use("/tournaments", tournamentRouter);
 app.use("/events", eventsRouter);
-app.use("/leaderboard", leaderboardRouter);
-
-app.get("/health", (_req, res) => res.json({ ok: true }));
-
-// GET /stats — public, real-time platform statistics
-app.get("/stats", async (_req, res) => {
-  try {
-    const [
-      totalAccounts,
-      completedMatches,
-      activeMatchCount,
-      payoutAggregate,
-      escrowAggregate,
-    ] = await Promise.all([
-      prisma.user.count(),
-      prisma.match.count({
-        where: {
-          status: { in: ["COMPLETED", "completed", "finished", "FINISHED"] },
-        },
-      }),
-      prisma.match.count({
-        where: { status: { in: ["OPEN", "UPCOMING", "ACTIVE"] } },
-      }),
-      prisma.ledgerEntry.aggregate({
-        _sum: { amount: true },
-        where: { type: "payout" },
-      }),
-      prisma.escrow.aggregate({
-        _sum: { amount: true },
-        where: { status: "locked" },
-      }),
-    ]);
-
-    const onlinePlayers = [...getAllPresence().values()].filter(
-      (e) => e.lastActive >= new Date(Date.now() - 5 * 60 * 1000),
-    ).length;
-
-    res.json({
-      totalAccounts,
-      completedMatches,
-      activeMatches: activeMatchCount,
-      totalPaidOutCents: payoutAggregate._sum.amount ?? 0,
-      inPlayCents: escrowAggregate._sum.amount ?? 0,
-      onlinePlayers,
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Failed to fetch stats" });
-  }
-});
-
+import http from "http";
+import { Server as IOServer } from "socket.io";
+import app from "./app";
+import { env } from "./lib/env";
+import { setIo } from "./lib/socket";
+import { getAllPresence, getUserStatus } from "./lib/presence";
+import { getOnlineUsers, subscribePresence } from "./services/redis";
 app.use("/auth", authRouter);
-app.use("/users", userRouter);
-app.use("/messages", messagesRouter);
-app.use("/teams", teamsRouter);
-app.use("/api/teams", teamsRouter);
-app.use("/search", searchRouter);
-app.use("/api/region", regionRouter);
-app.use("/api/regions", regionsRouter);
-app.use("/api/esports", esportsRouter);
-app.use("/api", uploadRouter);
-
-// ── Temporary debug route for Redis testing ──────────────────────────────────
-app.get("/debug/redis", async (_req, res) => {
-  try {
-    await setUserOnline("user1");
-    await setUserOnline("user2");
-    const results = await getOnlineUsers(["user1", "user2", "user3"]);
-    return res.json({ results });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/debug/lastseen/:userId", async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const [online, lastSeen] = await Promise.all([
-      isUserOnline(userId),
-      getLastSeen(userId),
-    ]);
-    return res.json({ online, lastSeen });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-const io = new IOServer(server, {
-  cors: {
-    origin: corsOrigins,
-    credentials: true,
-  },
-});
-
-// socket auth middleware
-io.use((socket, next) => {
-  try {
-    const token =
-      socket.handshake.auth?.token ||
-      socket.handshake.headers?.authorization
-        ?.toString()
-        .replace(/^Bearer\s+/i, "");
-    if (!token) return next(new Error("Authentication error"));
-    const payload = jwt.verify(token, env.JWT_SECRET) as { userId: string };
-    (socket as any).data.userId = payload.userId;
-    return next();
+const server = http.createServer(app);
   } catch (err) {
     return next(new Error("Authentication error"));
   }
@@ -495,6 +399,8 @@ app.use((_req, res) => {
   res.sendFile(path.join(frontendDist, "index.html"));
 });
 
-server.listen(env.PORT, () => {
-  console.log(`API listening on http://localhost:${env.PORT}`);
-});
+if (process.env.NODE_ENV !== "test") {
+  server.listen(env.PORT, () => {
+    console.log(`API listening on http://localhost:${env.PORT}`);
+  });
+}

@@ -2,6 +2,12 @@
   "name": "WannaBet?",
   "version": "0.1.0",
   "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "cd ../../e2e && npx playwright test"
+  },
   "dependencies": {
     "@chatscope/chat-ui-kit-react": "^2.1.1",
     "@chatscope/chat-ui-kit-styles": "^1.4.0",
