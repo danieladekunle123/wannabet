@@ -22,9 +22,7 @@ describe("Events Integration", () => {
   });
 
   it("events/tournaments returns list", async () => {
-    const res = await request(app)
-      .get("/events/tournaments")
-      .expect(200);
+    const res = await request(app).get("/events/tournaments").expect(200);
     expect(res.body).toBeDefined();
   });
 

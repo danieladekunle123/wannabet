@@ -30,7 +30,12 @@ describe("Redis/Rate Limiting Integration", () => {
       lastRes = await request(app)
         .post("/matches")
         .set("Authorization", `Bearer ${authToken}`)
-        .send({ game: "Test", stake: 1, matchType: "wager", title: `RL Test ${i}` });
+        .send({
+          game: "Test",
+          stake: 1,
+          matchType: "wager",
+          title: `RL Test ${i}`,
+        });
       if (lastRes.status === 429) break;
     }
     expect(lastRes!.status).toBe(429);

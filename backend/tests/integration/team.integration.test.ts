@@ -29,10 +29,7 @@ afterAll(async () => {
   await prisma.team.deleteMany({ where: { id: team?.id } });
   await prisma.blockedUser.deleteMany({
     where: {
-      OR: [
-        { blockerId: userA.id },
-        { blockerId: userB.id },
-      ],
+      OR: [{ blockerId: userA.id }, { blockerId: userB.id }],
     },
   });
   await prisma.user.deleteMany({

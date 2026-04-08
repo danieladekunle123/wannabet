@@ -40,13 +40,11 @@ export async function requireAuth(
         },
       });
       if (activeBan) {
-        return res
-          .status(403)
-          .json({
-            message: "Account is banned",
-            reason: activeBan.reason,
-            expiresAt: activeBan.expiresAt,
-          });
+        return res.status(403).json({
+          message: "Account is banned",
+          reason: activeBan.reason,
+          expiresAt: activeBan.expiresAt,
+        });
       }
     } catch (err) {
       console.error("Failed to check ban status", err);
