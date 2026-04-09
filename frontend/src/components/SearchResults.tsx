@@ -257,7 +257,7 @@ export function SearchResults({
   );
   const [gameDetailsLoading, setGameDetailsLoading] = useState(false);
   const [gameDetailsError, setGameDetailsError] = useState("");
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const API_URL = import.meta.env.VITE_API_URL ?? "";
 
   useEffect(() => {
     setSearchInput(searchQuery || "");

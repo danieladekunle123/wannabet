@@ -27,7 +27,7 @@ export function AddFriendDialog({ open, onOpenChange, onAdded }: AddFriendDialog
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const { token } = useAuth();
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+  const API_URL = import.meta.env.VITE_API_URL ?? '';
 
   const handleSubmit = async () => {
     if (!username.trim()) return alert('Enter a username');

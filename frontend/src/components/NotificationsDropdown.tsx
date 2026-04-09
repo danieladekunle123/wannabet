@@ -60,7 +60,7 @@ interface Notification {
 }
 
 const STORAGE_KEY = "wb_notifications";
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 interface NotificationsDropdownProps {
   onNavigate?: (tab: string, query?: string) => void;

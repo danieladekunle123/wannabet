@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Badge } from "./ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
@@ -155,11 +155,11 @@ function Podium({
   );
 }
 
-// ── Shared row renderers ──────────────────────────────────────────────────────
+// -- Shared row renderers ------------------------------------------------------
 
 function WinsRow({ e, isMe }: { e: WinsEntry; isMe: boolean }) {
   const total = e.wins + e.losses;
-  const wr = total > 0 ? ((e.wins / total) * 100).toFixed(1) : "—";
+  const wr = total > 0 ? ((e.wins / total) * 100).toFixed(1) : "�";
   return (
     <div
       className={`flex items-center gap-3 px-4 py-3 transition-colors ${isMe ? "bg-primary/10" : "hover:bg-muted/40"}`}
@@ -343,7 +343,7 @@ function UserDivider() {
   );
 }
 
-// ── Tab components ────────────────────────────────────────────────────────────
+// -- Tab components ------------------------------------------------------------
 
 function WinsTab({ currentUserId }: { currentUserId?: string }) {
   const [winsType, setWinsType] = useState<WinsType>("all");
@@ -421,7 +421,7 @@ function WinsTab({ currentUserId }: { currentUserId?: string }) {
                   <span className="text-foreground font-medium">
                     {e.wins + e.losses > 0
                       ? ((e.wins / (e.wins + e.losses)) * 100).toFixed(1)
-                      : "—"}
+                      : "�"}
                     %
                   </span>
                 </div>
@@ -434,7 +434,7 @@ function WinsTab({ currentUserId }: { currentUserId?: string }) {
                 {winsType === "all"
                   ? "All Matches"
                   : winsType.charAt(0).toUpperCase() + winsType.slice(1)}{" "}
-                Wins — Top 10
+                Wins � Top 10
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
@@ -505,7 +505,7 @@ function EarningsTab({ currentUserId }: { currentUserId?: string }) {
       />
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Top Earners — Top 10</CardTitle>
+          <CardTitle className="text-base">Top Earners � Top 10</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y divide-border">
@@ -591,7 +591,7 @@ function TrustTab({ currentUserId }: { currentUserId?: string }) {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">
-            Trust Score Rankings — Top 10
+            Trust Score Rankings � Top 10
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -616,7 +616,7 @@ function TrustTab({ currentUserId }: { currentUserId?: string }) {
   );
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
+// -- Main export ---------------------------------------------------------------
 
 export function Leaderboards() {
   const { user } = useAuth();

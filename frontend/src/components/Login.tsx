@@ -70,7 +70,7 @@ export function Login({ onNavigate, onSwitchToSignup }: LoginProps) {
       setIsLoading(true);
       try {
         const res = await fetch(
-          `${import.meta.env.VITE_API_URL || "http://localhost:4000"}/auth/google`,
+          `${import.meta.env.VITE_API_URL ?? ""}/auth/google`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },

@@ -4,7 +4,7 @@ import { Shield, Trophy, Users, Swords } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { SearchBar } from "./SearchBar";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 interface PlatformStats {
   totalAccounts: number;

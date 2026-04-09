@@ -96,7 +96,7 @@ export function FriendsList({
 }) {
   const { token, user } = useAuth();
   const { watchUsers, getStatus } = usePresence();
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const API_URL = import.meta.env.VITE_API_URL ?? "";
   const [activeTab, setActiveTab] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);

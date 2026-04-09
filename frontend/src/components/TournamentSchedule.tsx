@@ -1,4 +1,4 @@
-ï»¿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -108,7 +108,7 @@ export function TournamentSchedule({ onNavigate, tournamentId }: TournamentSched
             </div>
             <div className="flex-1 min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold text-foreground mb-1">Match Schedule</h1>
-              <p className="text-sm text-muted-foreground mb-2">{tournamentName}{game ? ` Â· ${game}` : ""}</p>
+              <p className="text-sm text-muted-foreground mb-2">{tournamentName}{game ? ` · ${game}` : ""}</p>
               <div className="flex flex-wrap gap-2">
                 {!loading && !error && (
                   <>
@@ -256,7 +256,7 @@ export function TournamentSchedule({ onNavigate, tournamentId }: TournamentSched
                               {/* Score */}
                               {hasScore ? (
                                 <span className="text-sm font-bold text-foreground tabular-nums shrink-0 mx-1">
-                                  {match.scoreA ?? 0} â€“ {match.scoreB ?? 0}
+                                  {match.scoreA ?? 0} – {match.scoreB ?? 0}
                                 </span>
                               ) : (
                                 <span className="text-xs text-muted-foreground mx-1">vs</span>

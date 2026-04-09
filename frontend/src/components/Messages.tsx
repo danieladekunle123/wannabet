@@ -97,7 +97,7 @@ export function Messages({
   onNavigate,
   onUnreadCountChange,
 }: MessagesProps) {
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const API_URL = import.meta.env.VITE_API_URL ?? "";
   const GIPHY_API_KEY =
     import.meta.env.VITE_GIPHY_API_KEY || "wYChZ0CXRzFrNp3kVR2bzsAqFHeBWyh2";
   const { user, token } = useAuth();

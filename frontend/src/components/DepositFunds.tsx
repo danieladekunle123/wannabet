@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import { loadStripe } from "@stripe/stripe-js";
 import {
   Elements,
@@ -46,7 +46,7 @@ interface DepositFundsProps {
   onNavigate?: (tab: string) => void;
 }
 
-// â”€â”€â”€ Inner form â€” needs to be inside <Elements> â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Inner form — needs to be inside <Elements> ───────────────────────────────
 function StripeDepositForm({
   amountCents,
   amountDollars,
@@ -103,7 +103,7 @@ function StripeDepositForm({
       }
 
       if (paymentIntent?.status === "succeeded") {
-        // 3) Confirm on backend (credits wallet â€” works without Stripe CLI)
+        // 3) Confirm on backend (credits wallet — works without Stripe CLI)
         await api.confirmStripePayment(intentId);
         onSuccess(intentId);
       } else {
@@ -125,7 +125,7 @@ function StripeDepositForm({
             Card Details
           </CardTitle>
           <CardDescription>
-            Powered by Stripe â€” your card info is never sent to our servers
+            Powered by Stripe — your card info is never sent to our servers
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -157,7 +157,7 @@ function StripeDepositForm({
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Payments are currently in Stripe test mode — no real charges will
+              Payments are currently in Stripe test mode � no real charges will
               be made.
             </p>
           </div>
@@ -226,7 +226,7 @@ function StripeDepositForm({
           {processing ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Processingâ€¦
+              Processing…
             </>
           ) : (
             <>
@@ -240,7 +240,7 @@ function StripeDepositForm({
   );
 }
 
-// â”€â”€â”€ Outer Shell â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Outer Shell ──────────────────────────────────────────────────────────────
 export function DepositFunds({ onNavigate }: DepositFundsProps) {
   const [step, setStep] = useState(1); // 1: Amount  2: Card  3: Success
   const [amount, setAmount] = useState("");
@@ -345,7 +345,7 @@ export function DepositFunds({ onNavigate }: DepositFundsProps) {
         </CardContent>
       </Card>
 
-      {/* â”€â”€ Step 1: Choose Amount â”€â”€ */}
+      {/* ── Step 1: Choose Amount ── */}
       {step === 1 && (
         <div className="space-y-6 animate-fadeInUp">
           <Card className="border-border/50">
@@ -420,7 +420,7 @@ export function DepositFunds({ onNavigate }: DepositFundsProps) {
                 {!amountOverLimit && !amountUnderMin && (
                   <p className="text-xs text-muted-foreground">
                     Minimum: {formatCurrencyFromEur(minAmount, currency, rates)}{" "}
-                    · Maximum:{" "}
+                    � Maximum:{" "}
                     {formatCurrencyFromEur(maxAmount, currency, rates)}
                   </p>
                 )}
@@ -521,7 +521,7 @@ export function DepositFunds({ onNavigate }: DepositFundsProps) {
         </div>
       )}
 
-      {/* â”€â”€ Step 2: Stripe Card Form â”€â”€ */}
+      {/* ── Step 2: Stripe Card Form ── */}
       {step === 2 && (
         <Elements stripe={stripePromise}>
           <StripeDepositForm
@@ -534,7 +534,7 @@ export function DepositFunds({ onNavigate }: DepositFundsProps) {
         </Elements>
       )}
 
-      {/* â”€â”€ Step 3: Success â”€â”€ */}
+      {/* ── Step 3: Success ── */}
       {step === 3 && (
         <div className="space-y-6 animate-fadeInUp">
           <Card className="border-emerald-600/30 bg-gradient-to-br from-emerald-600/10 to-transparent">

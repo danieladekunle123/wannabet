@@ -93,7 +93,7 @@ export function PublicProfile({
   const { user, token } = useAuth();
   const { watchUsers, getStatus, getLastSeen } = usePresence();
   const { currency, rates } = useCurrency();
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const API_URL = import.meta.env.VITE_API_URL ?? "";
 
   const [profileState, setProfileState] = useState<any>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);

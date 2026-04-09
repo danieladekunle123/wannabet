@@ -75,7 +75,7 @@ export function AccountSettings({ onNavigate }: AccountSettingsProps) {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [dangerLoading, setDangerLoading] = useState(false);
   const [dangerError, setDangerError] = useState("");
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const API_URL = import.meta.env.VITE_API_URL ?? "";
 
   async function handleDeactivate() {
     setDangerLoading(true);

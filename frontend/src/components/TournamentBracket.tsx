@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -42,7 +42,7 @@ interface TournamentBracketProps {
   tournamentId?: string;
 }
 
-// ─── Local types (mirrors API response) ────────────────────────────────────
+// --- Local types (mirrors API response) ------------------------------------
 
 interface TeamSlot {
   id: string;
@@ -94,7 +94,7 @@ interface LeaderboardEntry {
   scoreDiff: number;
 }
 
-// ─── Match card ─────────────────────────────────────────────────────────────
+// --- Match card -------------------------------------------------------------
 
 interface MatchCardProps {
   match: BracketMatch;
@@ -380,7 +380,7 @@ function MatchCard({
   );
 }
 
-// ─── Main component ─────────────────────────────────────────────────────────
+// --- Main component ---------------------------------------------------------
 
 export function TournamentBracket({
   onNavigate,
@@ -600,7 +600,7 @@ export function TournamentBracket({
             </CardContent>
           </Card>
 
-          {/* Host Controls — cancel / edit / start */}
+          {/* Host Controls � cancel / edit / start */}
           {isHost && ["upcoming", "open"].includes(tournament.status) && (
             <Card className="border-amber-500/30 bg-amber-500/5">
               <CardContent className="p-4">
@@ -823,7 +823,7 @@ export function TournamentBracket({
                   <Trophy className="h-5 w-5 text-primary" />
                   Tournament Bracket
                   <Badge variant="outline" className="ml-auto text-xs">
-                    ← scroll →
+                    ? scroll ?
                   </Badge>
                 </CardTitle>
               </CardHeader>

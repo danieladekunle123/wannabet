@@ -1,4 +1,4 @@
-ï»¿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useAuth } from "./AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { formatCurrencyFromEur } from "../utils/formatCurrency";
@@ -64,7 +64,7 @@ interface MyTeam {
   ownerId: string;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 function formatFormat(f: string) {
   const map: Record<string, string> = {
@@ -210,10 +210,10 @@ export function JoinTournament({ onNavigate, tournamentId }: JoinTournamentProps
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1"><Target className="h-4 w-4" />{tournament.game}</span>
-                  <span>â€¢</span>
+                  <span>•</span>
                   <span className="flex items-center gap-1"><Users className="h-4 w-4" />{tournament.teamSize}v{tournament.teamSize}</span>
                   {tournament.startAt && (
-                    <><span>â€¢</span><span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(tournament.startAt).toLocaleDateString()}</span></>
+                    <><span>•</span><span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(tournament.startAt).toLocaleDateString()}</span></>
                   )}
                 </div>
               </div>
@@ -386,7 +386,7 @@ export function JoinTournament({ onNavigate, tournamentId }: JoinTournamentProps
                           </div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
                             <span>{team.game}</span>
-                            <span>â€¢</span>
+                            <span>•</span>
                             <span>{team.memberCount} member{team.memberCount !== 1 ? "s" : ""}</span>
                           </div>
                         </div>
@@ -460,7 +460,7 @@ export function JoinTournament({ onNavigate, tournamentId }: JoinTournamentProps
             <Separator />
             <div className="flex justify-between"><span className="text-muted-foreground">Format</span><span className="text-foreground">{formatFormat(tournament.format)}</span></div>
             <Separator />
-            <div className="flex justify-between"><span className="text-muted-foreground">Team</span><span className="text-foreground font-medium">{selectedTeam?.name ?? "â€”"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Team</span><span className="text-foreground font-medium">{selectedTeam?.name ?? "—"}</span></div>
             {tournament.startAt && (
               <><Separator /><div className="flex justify-between"><span className="text-muted-foreground">Starts</span><span className="text-foreground">{new Date(tournament.startAt).toLocaleString()}</span></div></>
             )}
@@ -493,7 +493,7 @@ export function JoinTournament({ onNavigate, tournamentId }: JoinTournamentProps
                   <div className="flex items-start gap-2">
                     <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
                     <p className="text-xs text-destructive">
-                      Insufficient balance â€” need {formatCurrencyFromEur(entryFeeEur - balanceDollars, currency, rates)} more
+                      Insufficient balance — need {formatCurrencyFromEur(entryFeeEur - balanceDollars, currency, rates)} more
                     </p>
                   </div>
                   <Button variant="outline" size="sm" className="w-full border-destructive/50 text-destructive" onClick={() => onNavigate("deposit-funds")}>

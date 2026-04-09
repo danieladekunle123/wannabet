@@ -10,7 +10,7 @@ interface UserAvatarProps {
   fallbackClassName?: string;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 function toAbsoluteUrl(url?: string | null) {
   if (!url) return null;

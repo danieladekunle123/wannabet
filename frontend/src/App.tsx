@@ -67,7 +67,7 @@ import { CurrencyProvider } from "./context/CurrencyContext";
 import { PresenceProvider } from "./context/PresenceContext";
 import api from "./lib/api";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 // --- Navigation helpers: convert tab name <-> URL path ---
 function tabToPath(tab: string, query?: string): string {
