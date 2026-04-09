@@ -5,6 +5,7 @@ dotenv.config({ path: ".env.test" });
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { setIo } from "../../src/lib/socket";
+import { closeRedisConnections } from "../../src/services/redis";
 
 // Initialize a minimal Socket.io instance for tests that need it
 const httpServer = createServer();
@@ -16,4 +17,5 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   io.close();
+  await closeRedisConnections();
 });

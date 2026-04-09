@@ -184,6 +184,10 @@ async function checkRateLimit(
   };
 }
 
+async function closeRedisConnections() {
+  await Promise.allSettled([redis.quit(), pub.quit(), sub.quit()]);
+}
+
 export {
   redis,
   pub,
@@ -208,5 +212,6 @@ export {
   CACHE_KEYS,
   invalidateAllLobbyCaches,
   checkRateLimit,
+  closeRedisConnections,
 };
 export type { RedisUserStatus, PresenceMessage };
