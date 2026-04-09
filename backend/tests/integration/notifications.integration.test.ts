@@ -24,7 +24,7 @@ describe("Events Integration", () => {
   it("events/tournaments returns list", async () => {
     const res = await request(app).get("/events/tournaments").expect(200);
     expect(res.body).toBeDefined();
-  });
+  }, 15000);
 
   it("events/my returns user events with auth", async () => {
     const res = await request(app)

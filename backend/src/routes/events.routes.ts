@@ -1677,11 +1677,7 @@ eventsRouter.post(
       }
 
       const key = buildS3Key("disputes", userId, file.mimetype);
-      const fileUrl = await uploadBufferToS3(
-        file.buffer,
-        key,
-        file.mimetype,
-      );
+      const fileUrl = await uploadBufferToS3(file.buffer, key, file.mimetype);
 
       // Append URL to dispute evidence
       const existing = await prisma.dispute.findFirst({

@@ -51,11 +51,7 @@ router.post(
 
       const userId = req.user!.userId;
       const key = buildS3Key("messages", userId, file.mimetype);
-      const mediaUrl = await uploadBufferToS3(
-        file.buffer,
-        key,
-        file.mimetype,
-      );
+      const mediaUrl = await uploadBufferToS3(file.buffer, key, file.mimetype);
 
       const messageType = file.mimetype.startsWith("video/")
         ? "video"

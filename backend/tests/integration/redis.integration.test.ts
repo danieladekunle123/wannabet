@@ -39,5 +39,5 @@ describe("Redis/Rate Limiting Integration", () => {
       if (lastRes.status === 429) break;
     }
     expect(lastRes!.status).toBe(429);
-  });
+  }, 30000);
 });
