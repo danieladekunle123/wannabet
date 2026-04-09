@@ -134,11 +134,11 @@ function BugReportCard({
           {report.imageUrl && (
             <div className="rounded-lg overflow-hidden border border-border/50">
               <img
-                src={`${API_URL}${report.imageUrl}`}
+                src={report.imageUrl.startsWith("http") ? report.imageUrl : `${API_URL}${report.imageUrl}`}
                 alt="Bug screenshot"
                 className="w-full max-h-48 object-contain bg-muted/20 cursor-pointer"
                 onClick={() =>
-                  window.open(`${API_URL}${report.imageUrl}`, "_blank")
+                  window.open(report.imageUrl.startsWith("http") ? report.imageUrl : `${API_URL}${report.imageUrl}`, "_blank")
                 }
               />
             </div>

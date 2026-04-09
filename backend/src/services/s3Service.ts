@@ -9,15 +9,33 @@ const s3 = new S3Client({
   },
 });
 
+const CDN_URL = process.env.CDN_URL;
+const BUCKET = process.env.AWS_BUCKET_NAME!;
+const REGION = process.env.AWS_REGION!;
+
+function buildFileUrl(key: string): string {
+  if (CDN_URL) return `${CDN_URL.replace(/\/+$/, "")}/${key}`;
+  return `https://${BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
+}
+
+export function buildS3Key(
+  folder: string,
+  userId: string,
+  fileType: string,
+): string {
+  const ext = fileType.split("/")[1] || "bin";
+  return `${folder}/${userId}/${Date.now()}.${ext}`;
+}
+
 export async function generateUploadUrl(
   userId: string,
   fileType: string,
   folder: string,
 ) {
-  const key = `${folder}/${userId}/${Date.now()}.${fileType.split("/")[1]}`;
+  const key = buildS3Key(folder, userId, fileType);
 
   const command = new PutObjectCommand({
-    Bucket: process.env.AWS_BUCKET_NAME,
+    Bucket: BUCKET,
     Key: key,
     ContentType: fileType,
   });
@@ -26,6 +44,22 @@ export async function generateUploadUrl(
 
   return {
     uploadUrl: url,
-    fileUrl: `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`,
+    fileUrl: buildFileUrl(key),
   };
+}
+
+export async function uploadBufferToS3(
+  buffer: Buffer,
+  key: string,
+  contentType: string,
+): Promise<string> {
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+    }),
+  );
+  return buildFileUrl(key);
 }

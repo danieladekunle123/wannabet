@@ -12,6 +12,7 @@ import { getIo } from "../lib/socket";
 import { getConfig, invalidateConfigCache } from "../lib/platformConfig";
 import { getUserStatus } from "../lib/presence";
 import { getOnlineUsers, isUserOnline } from "../services/redis";
+import { uploadBufferToS3, buildS3Key } from "../services/s3Service";
 
 export const userRouter = Router();
 
@@ -31,11 +32,6 @@ const findBlockBetweenUsers = async (firstId: string, secondId: string) => {
   });
 };
 
-const profileUploadDir = path.join(process.cwd(), "uploads", "profiles");
-if (!fs.existsSync(profileUploadDir)) {
-  fs.mkdirSync(profileUploadDir, { recursive: true });
-}
-
 const allowedProfileImageMimeTypes = new Set([
   "image/jpeg",
   "image/jpg",
@@ -52,22 +48,8 @@ const mimeToExtension: Record<string, string> = {
   "image/gif": ".gif",
 };
 
-const bugReportUploadDir = path.join(process.cwd(), "uploads", "bug-reports");
-if (!fs.existsSync(bugReportUploadDir)) {
-  fs.mkdirSync(bugReportUploadDir, { recursive: true });
-}
-
 const bugReportUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, bugReportUploadDir),
-    filename: (_req, file, cb) => {
-      const originalExt = path.extname(file.originalname || "").toLowerCase();
-      const mimeExt = mimeToExtension[file.mimetype] || "";
-      const safeExt = originalExt || mimeExt || ".jpg";
-      const baseName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      cb(null, `${baseName}${safeExt}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!allowedProfileImageMimeTypes.has(file.mimetype)) {
@@ -78,22 +60,12 @@ const bugReportUpload = multer({
 });
 
 const profileUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, profileUploadDir),
-    filename: (_req, file, cb) => {
-      const originalExt = path.extname(file.originalname || "").toLowerCase();
-      const mimeExt = mimeToExtension[file.mimetype] || "";
-      const safeExt = originalExt || mimeExt || ".jpg";
-      const baseName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      cb(null, `${baseName}${safeExt}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!allowedProfileImageMimeTypes.has(file.mimetype)) {
       return cb(new Error("Unsupported file type"));
     }
-
     cb(null, true);
   },
 });
@@ -229,13 +201,12 @@ userRouter.post("/me/profile-image/upload", requireAuth, (req, res) => {
         return res.status(400).json({ message: "No file uploaded" });
       }
 
-      const normalizedPath = file.path.replace(/\\/g, "/");
-      const uploadsIndex = normalizedPath.indexOf("/uploads/");
-      const relativePath =
-        uploadsIndex >= 0
-          ? normalizedPath.slice(uploadsIndex + 1)
-          : `uploads/profiles/${file.filename}`;
-      const profileImageUrl = `/${relativePath}`;
+      const key = buildS3Key("profiles", userId, file.mimetype);
+      const profileImageUrl = await uploadBufferToS3(
+        file.buffer,
+        key,
+        file.mimetype,
+      );
 
       const user = await prisma.user.update({
         where: { id: userId },
@@ -486,9 +457,15 @@ userRouter.post(
         return res.status(400).json({ message: "Missing required fields" });
       }
 
-      const imageUrl = req.file
-        ? `/uploads/bug-reports/${req.file.filename}`
-        : null;
+      let imageUrl: string | null = null;
+      if (req.file) {
+        const key = buildS3Key("bug-reports", userId, req.file.mimetype);
+        imageUrl = await uploadBufferToS3(
+          req.file.buffer,
+          key,
+          req.file.mimetype,
+        );
+      }
 
       const report = await prisma.bugReport.create({
         data: {

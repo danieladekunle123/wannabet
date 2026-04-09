@@ -16,13 +16,9 @@ import {
   CACHE_KEYS,
   invalidateAllLobbyCaches,
 } from "../services/redis";
+import { uploadBufferToS3, buildS3Key } from "../services/s3Service";
 
 // ─── Dispute evidence file upload ────────────────────────────────────────────
-const disputeUploadDir = path.join(process.cwd(), "uploads", "disputes");
-if (!fs.existsSync(disputeUploadDir)) {
-  fs.mkdirSync(disputeUploadDir, { recursive: true });
-}
-
 const allowedDisputeMimeTypes = new Set([
   "image/jpeg",
   "image/jpg",
@@ -30,25 +26,8 @@ const allowedDisputeMimeTypes = new Set([
   "image/webp",
 ]);
 
-const disputeMimeToExt: Record<string, string> = {
-  "image/jpeg": ".jpg",
-  "image/jpg": ".jpg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-};
-
 const disputeUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, disputeUploadDir),
-    filename: (_req, file, cb) => {
-      const ext =
-        disputeMimeToExt[file.mimetype] ||
-        path.extname(file.originalname || "").toLowerCase() ||
-        ".jpg";
-      const base = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      cb(null, `${base}${ext}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
   fileFilter: (_req, file, cb) => {
     if (!allowedDisputeMimeTypes.has(file.mimetype)) {
@@ -1697,14 +1676,12 @@ eventsRouter.post(
         return res.status(400).json({ message: "Match is not disputed" });
       }
 
-      // Build a server-relative URL (served by the /uploads static middleware)
-      const normalizedPath = file.path.replace(/\\/g, "/");
-      const uploadsIndex = normalizedPath.indexOf("/uploads/");
-      const relativePath =
-        uploadsIndex >= 0
-          ? normalizedPath.slice(uploadsIndex)
-          : `/uploads/disputes/${file.filename}`;
-      const fileUrl = `http://localhost:4000${relativePath}`;
+      const key = buildS3Key("disputes", userId, file.mimetype);
+      const fileUrl = await uploadBufferToS3(
+        file.buffer,
+        key,
+        file.mimetype,
+      );
 
       // Append URL to dispute evidence
       const existing = await prisma.dispute.findFirst({

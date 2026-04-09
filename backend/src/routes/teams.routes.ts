@@ -1,21 +1,15 @@
 ﻿import { Router } from "express";
-import fs from "fs";
 import multer from "multer";
-import path from "path";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
+import { uploadBufferToS3, buildS3Key } from "../services/s3Service";
 
 export const teamsRouter = Router();
 
 type TeamRole = "commander" | "general" | "colonel";
 type TeamInviteStatus = "pending" | "accepted" | "declined";
 const db = prisma as any;
-
-const teamUploadDir = path.join(process.cwd(), "uploads", "teams");
-if (!fs.existsSync(teamUploadDir)) {
-  fs.mkdirSync(teamUploadDir, { recursive: true });
-}
 
 const allowedTeamImageMimeTypes = new Set([
   "image/jpeg",
@@ -25,31 +19,13 @@ const allowedTeamImageMimeTypes = new Set([
   "image/gif",
 ]);
 
-const teamImageMimeToExtension: Record<string, string> = {
-  "image/jpeg": ".jpg",
-  "image/jpg": ".jpg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-  "image/gif": ".gif",
-};
-
 const teamProfileUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, teamUploadDir),
-    filename: (_req, file, cb) => {
-      const originalExt = path.extname(file.originalname || "").toLowerCase();
-      const mimeExt = teamImageMimeToExtension[file.mimetype] || "";
-      const safeExt = originalExt || mimeExt || ".jpg";
-      const baseName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      cb(null, `${baseName}${safeExt}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!allowedTeamImageMimeTypes.has(file.mimetype)) {
       return cb(new Error("Unsupported file type"));
     }
-
     cb(null, true);
   },
 });
@@ -587,13 +563,12 @@ teamsRouter.post("/:teamId/profile-image/upload", requireAuth, (req, res) => {
         return res.status(400).json({ message: "No file uploaded" });
       }
 
-      const normalizedPath = file.path.replace(/\\/g, "/");
-      const uploadsIndex = normalizedPath.indexOf("/uploads/");
-      const relativePath =
-        uploadsIndex >= 0
-          ? normalizedPath.slice(uploadsIndex + 1)
-          : `uploads/teams/${file.filename}`;
-      const profileImageUrl = `/${relativePath}`;
+      const key = buildS3Key("teams", teamId, file.mimetype);
+      const profileImageUrl = await uploadBufferToS3(
+        file.buffer,
+        key,
+        file.mimetype,
+      );
 
       const team = await db.team.update({
         where: { id: teamId },

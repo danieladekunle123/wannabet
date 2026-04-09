@@ -1,106 +1,173 @@
+/**
+ * Wallet API Integration Tests
+ *
+ * Covers: wallet summary, escrow lock/release, withdrawal, ledger entries,
+ * balance validations, and edge cases.
+ */
 import request from "supertest";
 import app from "../../src/app";
 import { prisma } from "../../src/lib/prisma";
-import { userFactory, generateTestToken } from "../helpers/factories";
+import { createTestUser, cleanupUser } from "../helpers/factories";
 
-let testUser: any;
-let authToken: string;
-
-beforeAll(async () => {
-  testUser = await prisma.user.create({
-    data: {
-      ...userFactory(),
-      wallet: { create: { balance: 10000, escrow: 0 } },
-    },
-    include: { wallet: true },
-  });
-  authToken = generateTestToken(testUser.id);
-});
+const userIds: string[] = [];
 
 afterAll(async () => {
-  await prisma.ledgerEntry.deleteMany({
-    where: { walletId: testUser.wallet.id },
-  });
-  await prisma.wallet.deleteMany({ where: { userId: testUser.id } });
-  await prisma.user.deleteMany({ where: { id: testUser.id } });
-});
+  for (const id of userIds) await cleanupUser(id);
+}, 15000);
 
-describe("Wallet API Integration", () => {
-  it("returns wallet summary", async () => {
+describe("Wallet Summary", () => {
+  it("returns wallet balance and escrow", async () => {
+    const { user, token } = await createTestUser({}, 10000);
+    userIds.push(user.id);
+
     const res = await request(app)
       .get("/wallet")
-      .set("Authorization", `Bearer ${authToken}`)
+      .set("Authorization", `Bearer ${token}`)
       .expect(200);
-    expect(res.body.wallet).toBeDefined();
-    expect(res.body.wallet.balance).toBeGreaterThanOrEqual(0);
+    expect(res.body.wallet.balance).toBe(10000);
+    expect(res.body.wallet.escrow).toBe(0);
   });
 
+  it("returns 401 without auth", async () => {
+    await request(app).get("/wallet").expect(401);
+  });
+});
+
+describe("Escrow Lock & Release", () => {
   it("locks funds into escrow", async () => {
+    const { user, token } = await createTestUser({}, 10000);
+    userIds.push(user.id);
+
     const res = await request(app)
       .post("/wallet/escrow/lock")
-      .set("Authorization", `Bearer ${authToken}`)
+      .set("Authorization", `Bearer ${token}`)
       .send({ amount: 500 })
       .expect(201);
-    expect(res.body.wallet.escrow).toBeGreaterThanOrEqual(500);
-    expect(res.body.wallet.balance).toBeLessThanOrEqual(9500);
+    expect(res.body.wallet.escrow).toBe(500);
+    expect(res.body.wallet.balance).toBe(9500);
   });
 
-  it("releases funds from escrow", async () => {
-    // Lock first
+  it("releases funds from escrow back to balance", async () => {
+    const { user, token } = await createTestUser({}, 10000);
+    userIds.push(user.id);
+
     await request(app)
       .post("/wallet/escrow/lock")
-      .set("Authorization", `Bearer ${authToken}`)
-      .send({ amount: 200 });
-    // Release
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount: 500 });
+
     const res = await request(app)
       .post("/wallet/escrow/release")
-      .set("Authorization", `Bearer ${authToken}`)
-      .send({ amount: 200 })
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount: 500 })
       .expect(201);
-    expect(res.body.wallet.escrow).toBeGreaterThanOrEqual(0);
-    expect(res.body.wallet.balance).toBeGreaterThanOrEqual(0);
+    expect(res.body.wallet.balance).toBe(10000);
+    expect(res.body.wallet.escrow).toBe(0);
   });
 
-  it("prevents withdrawal if insufficient balance", async () => {
-    const res = await request(app)
-      .post("/wallet/withdraw")
-      .set("Authorization", `Bearer ${authToken}`)
-      .send({ amount: 999999 })
-      .expect(400);
-    expect(res.body.message).toMatch(/Insufficient balance/);
+  it("creates ledger entries for lock and release", async () => {
+    const { user, token } = await createTestUser({}, 5000);
+    userIds.push(user.id);
+
+    const lockRes = await request(app)
+      .post("/wallet/escrow/lock")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount: 300 })
+      .expect(201);
+    expect(lockRes.body.ledgerEntry.type).toBe("escrow_lock");
+
+    const releaseRes = await request(app)
+      .post("/wallet/escrow/release")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount: 300 })
+      .expect(201);
+    expect(releaseRes.body.ledgerEntry.type).toBe("refund");
   });
 
-  it("prevents escrow lock if insufficient balance", async () => {
+  it("prevents escrow lock with insufficient balance", async () => {
+    const { user, token } = await createTestUser({}, 100);
+    userIds.push(user.id);
+
     const res = await request(app)
       .post("/wallet/escrow/lock")
-      .set("Authorization", `Bearer ${authToken}`)
+      .set("Authorization", `Bearer ${token}`)
       .send({ amount: 999999 })
       .expect(400);
     expect(res.body.message).toMatch(/Insufficient balance/);
   });
 
-  it("prevents escrow release if insufficient escrow", async () => {
+  it("prevents escrow release with insufficient escrow", async () => {
+    const { user, token } = await createTestUser({}, 5000);
+    userIds.push(user.id);
+
     const res = await request(app)
       .post("/wallet/escrow/release")
-      .set("Authorization", `Bearer ${authToken}`)
+      .set("Authorization", `Bearer ${token}`)
       .send({ amount: 999999 })
       .expect(400);
     expect(res.body.message).toMatch(/Insufficient escrow/);
   });
 
-  it("rejects negative or zero amounts for lock/release", async () => {
-    const lockRes = await request(app)
+  it("rejects zero/negative amounts", async () => {
+    const { user, token } = await createTestUser({}, 5000);
+    userIds.push(user.id);
+
+    await request(app)
       .post("/wallet/escrow/lock")
-      .set("Authorization", `Bearer ${authToken}`)
+      .set("Authorization", `Bearer ${token}`)
       .send({ amount: 0 })
       .expect(400);
-    expect(lockRes.body.message).toBeDefined();
 
-    const releaseRes = await request(app)
+    await request(app)
       .post("/wallet/escrow/release")
-      .set("Authorization", `Bearer ${authToken}`)
+      .set("Authorization", `Bearer ${token}`)
       .send({ amount: -100 })
       .expect(400);
-    expect(releaseRes.body.message).toBeDefined();
+  });
+});
+
+describe("Withdrawal", () => {
+  it("withdraws from balance", async () => {
+    const { user, token } = await createTestUser({}, 5000);
+    userIds.push(user.id);
+
+    const res = await request(app)
+      .post("/wallet/withdraw")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount: 2000 })
+      .expect(201);
+    expect(res.body.wallet.balance).toBe(3000);
+  });
+
+  it("prevents withdrawal with insufficient balance", async () => {
+    const { user, token } = await createTestUser({}, 100);
+    userIds.push(user.id);
+
+    const res = await request(app)
+      .post("/wallet/withdraw")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount: 999999 })
+      .expect(400);
+    expect(res.body.message).toMatch(/Insufficient balance/);
+  });
+});
+
+describe("Ledger", () => {
+  it("returns ledger entries", async () => {
+    const { user, token } = await createTestUser({}, 5000);
+    userIds.push(user.id);
+
+    // Make some transactions to generate entries
+    await request(app)
+      .post("/wallet/escrow/lock")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount: 100 });
+
+    const res = await request(app)
+      .get("/wallet/ledger")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    expect(Array.isArray(res.body.entries)).toBe(true);
+    expect(res.body.entries.length).toBeGreaterThanOrEqual(1);
   });
 });

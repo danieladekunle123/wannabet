@@ -1,28 +1,15 @@
 import { Router } from "express";
-import fs from "fs";
-import path from "path";
 import multer from "multer";
 import { requireAuth } from "../middleware/auth";
 import { prisma } from "../lib/prisma";
 import { getIo } from "../lib/socket";
 import { setMessageRead, checkRateLimit } from "../services/redis";
+import { uploadBufferToS3, buildS3Key } from "../services/s3Service";
 
 const router = Router();
 
-const uploadDir = path.join(process.cwd(), "uploads", "messages");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadDir),
-    filename: (_req, file, cb) => {
-      const safeExt = path.extname(file.originalname || "").toLowerCase() || "";
-      const baseName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      cb(null, `${baseName}${safeExt}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowedMimeTypes = [
@@ -62,13 +49,13 @@ router.post(
         return res.status(400).json({ message: "No file uploaded" });
       }
 
-      const normalizedPath = file.path.replace(/\\/g, "/");
-      const uploadsIndex = normalizedPath.indexOf("/uploads/");
-      const relativePath =
-        uploadsIndex >= 0
-          ? normalizedPath.slice(uploadsIndex + 1)
-          : `uploads/messages/${file.filename}`;
-      const mediaUrl = `/${relativePath}`;
+      const userId = req.user!.userId;
+      const key = buildS3Key("messages", userId, file.mimetype);
+      const mediaUrl = await uploadBufferToS3(
+        file.buffer,
+        key,
+        file.mimetype,
+      );
 
       const messageType = file.mimetype.startsWith("video/")
         ? "video"

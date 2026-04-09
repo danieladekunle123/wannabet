@@ -109,9 +109,12 @@ app.get("/stats", async (_req, res) => {
         where: { status: "locked" },
       }),
     ]);
-    const onlinePlayers = [...getOnlineUsers().values()].filter(
-      (e) => e.lastActive >= new Date(Date.now() - 5 * 60 * 1000),
-    ).length;
+    const onlineKeys = await redis.keys("user:*:status");
+    let onlinePlayers = 0;
+    for (const key of onlineKeys) {
+      const val = await redis.get(key);
+      if (val === "online" || val === "away" || val === "dnd") onlinePlayers++;
+    }
     res.json({
       totalAccounts,
       completedMatches,
