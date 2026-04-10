@@ -28,3 +28,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Legacy upload directory (now using S3)
+backend/uploads/
