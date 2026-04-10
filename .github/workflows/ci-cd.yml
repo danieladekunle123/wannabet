@@ -30,12 +30,23 @@ jobs:
         working-directory: backend
         run: npx prisma generate
 
+      - name: Start PostgreSQL
+        uses: ankane/setup-postgres@v1
+        with:
+          database: wannabet_test
+
+      - name: Run Prisma migrations
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wannabet_test
+        run: npx prisma migrate deploy
+
       - name: Run backend tests
         working-directory: backend
         env:
           NODE_ENV: test
           JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret-1234567890' }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://test:test@localhost:5432/wannabet_test' }}
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wannabet_test
           REDIS_URL: ${{ secrets.REDIS_URL || 'redis://localhost:6379' }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY || 'sk_test_placeholder_for_ci' }}
           CORS_ORIGIN: http://localhost:3000
