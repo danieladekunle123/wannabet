@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/auth";
 import { prisma } from "../lib/prisma";
 import { env } from "../lib/env";
 import type { Request, Response } from "express";
+import logger from "../lib/logger";
 
 export const stripeRouter = Router();
 
@@ -26,9 +27,18 @@ stripeRouter.post("/payment-intent", requireAuth, async (req, res) => {
     }
 
     const intent = await createPaymentIntent(userId, rawAmount);
+    logger.info("Payment intent created", {
+      userId,
+      amount: rawAmount,
+      intentId: intent.id,
+    });
     return res.json({ clientSecret: intent.client_secret, id: intent.id });
   } catch (err: any) {
-    console.error("payment-intent error", err);
+    logger.error("Payment intent failed", {
+      userId,
+      amount: rawAmount,
+      error: err.message,
+    });
     return res.status(500).json({ message: err.message ?? "Internal error" });
   }
 });
@@ -52,7 +62,9 @@ stripeRouter.post("/webhook", async (req: Request, res: Response) => {
         webhookSecret,
       );
     } catch (err: any) {
-      console.error("Webhook signature verification failed:", err.message);
+      logger.error("Webhook signature verification failed", {
+        error: err.message,
+      });
       return res.status(400).json({ message: "Invalid webhook signature" });
     }
   } else {
@@ -108,7 +120,10 @@ stripeRouter.post("/confirm-payment", requireAuth, async (req, res) => {
     const wallet = await creditWalletForPaymentIntent(intent);
     return res.json({ credited: true, wallet });
   } catch (err: any) {
-    console.error("confirm-payment error", err);
+    logger.error("Confirm payment failed", {
+      userId: req.user?.userId,
+      error: err.message,
+    });
     return res.status(500).json({ message: err.message ?? "Internal error" });
   }
 });
@@ -132,7 +147,9 @@ async function creditWalletForPaymentIntent(
 ) {
   const userId = intent.metadata?.userId;
   if (!userId) {
-    console.error("PaymentIntent has no userId in metadata:", intent.id);
+    logger.error("PaymentIntent has no userId in metadata", {
+      intentId: intent.id,
+    });
     return null;
   }
 
@@ -164,5 +181,10 @@ async function creditWalletForPaymentIntent(
     return updated;
   });
 
+  logger.info("Wallet credited via Stripe", {
+    userId,
+    amount: amountCents,
+    intentId: intent.id,
+  });
   return result;
 }

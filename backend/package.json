@@ -39,6 +39,7 @@
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "ts-jest": "^29.4.9",
+    "winston": "^3.19.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

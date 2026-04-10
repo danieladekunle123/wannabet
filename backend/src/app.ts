@@ -33,6 +33,7 @@ import { uploadRouter } from "./routes/upload.routes";
 import { prisma } from "./lib/prisma";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./lib/swagger";
+import { requestLogger } from "./middleware/requestLogger";
 
 const app = express();
 
@@ -55,6 +56,7 @@ app.use(
   },
 );
 app.use(express.json());
+app.use(requestLogger);
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get("/api/docs.json", (_req, res) => res.json(swaggerSpec));

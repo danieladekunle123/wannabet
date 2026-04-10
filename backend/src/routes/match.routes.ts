@@ -12,6 +12,7 @@ import {
   invalidateAllLobbyCaches,
   checkRateLimit,
 } from "../services/redis";
+import logger from "../lib/logger";
 
 export const matchRouter = Router();
 
@@ -211,6 +212,13 @@ matchRouter.post("/", requireAuth, async (req, res) => {
     }
 
     await invalidateAllLobbyCaches();
+    logger.info("Match created", {
+      userId,
+      matchId: result.match.id,
+      game,
+      stake,
+      matchType: normalizedMatchType,
+    });
     return res.status(201).json({
       match: result.match,
       wallet: result.updatedWallet,
@@ -430,6 +438,11 @@ matchRouter.post("/:id/report", requireAuth, async (req, res) => {
     }
 
     await invalidateAllLobbyCaches();
+    logger.info("Match result reported", {
+      userId: reporterId,
+      matchId,
+      reportedWinnerId: winnerId,
+    });
     return res.json({ match: updatedMatch });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });
@@ -629,6 +642,13 @@ matchRouter.post("/:id/confirm", requireAuth, async (req, res) => {
     }
 
     await invalidateAllLobbyCaches();
+    logger.info("Match confirmed & completed", {
+      userId: confirmerId,
+      matchId,
+      winnerId,
+      loserId,
+      payout: pot,
+    });
     return res.json({ match: result });
   } catch (err: any) {
     return res.status(400).json({ message: err.message ?? "Bad request" });
