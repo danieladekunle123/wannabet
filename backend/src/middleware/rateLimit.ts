@@ -12,6 +12,8 @@ export function globalRateLimit(
   res: Response,
   next: NextFunction,
 ) {
+  if (process.env.NODE_ENV === "test") return next();
+
   const skip =
     req.path === "/health" ||
     req.path === "/metrics" ||
