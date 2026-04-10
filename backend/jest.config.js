@@ -6,7 +6,7 @@ module.exports = {
   coverageDirectory: "./coverage",
   collectCoverageFrom: ["src/**/*.{ts,tsx}", "!src/index.ts"],
   moduleFileExtensions: ["ts", "js", "json"],
-  coverageThresholds: {
+  coverageThreshold: {
     global: {
       branches: 40,
       functions: 40,
