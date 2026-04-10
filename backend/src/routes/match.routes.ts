@@ -13,6 +13,7 @@ import {
   checkRateLimit,
 } from "../services/redis";
 import logger from "../lib/logger";
+import { notificationQueue } from "../jobs/queues";
 
 export const matchRouter = Router();
 
@@ -352,17 +353,26 @@ matchRouter.post("/:id/join", requireAuth, async (req, res) => {
         where: { id: userId },
         select: { username: true },
       });
-      const io = getIo();
-      io.to(`user:${result.hostId}`).emit("notification:new", {
-        id: `match-join-${result.id}-${Date.now()}`,
-        type: "match-joined",
-        title: "Someone joined your match",
-        body: `${joiner?.username ?? "A player"} joined your ${result.game} match`,
-        timestamp: new Date().toISOString(),
-        data: { matchId: result.id, game: result.game },
-      });
+      await notificationQueue.add(
+        "match-joined",
+        {
+          userId: result.hostId,
+          notification: {
+            id: `match-join-${result.id}-${Date.now()}`,
+            type: "match-joined",
+            title: "Someone joined your match",
+            body: `${joiner?.username ?? "A player"} joined your ${result.game} match`,
+            timestamp: new Date().toISOString(),
+            data: { matchId: result.id, game: result.game },
+          },
+        },
+        {
+          attempts: 3,
+          backoff: { type: "exponential", delay: 2000 },
+        },
+      );
     } catch {
-      // socket emit failure is non-fatal
+      // notification queue failure is non-fatal
     }
 
     await invalidateAllLobbyCaches();

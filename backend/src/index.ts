@@ -28,6 +28,8 @@ import {
   subscribePresence,
   redis,
 } from "./services/redis";
+import { startDisputeWorker } from "./jobs/dispute.worker";
+import { startNotificationWorker } from "./jobs/notification.worker";
 
 const server = http.createServer(app);
 
@@ -333,5 +335,7 @@ app.use((_req, res) => {
 if (process.env.NODE_ENV !== "test") {
   server.listen(env.PORT, () => {
     console.log(`API listening on http://localhost:${env.PORT}`);
+    startDisputeWorker();
+    startNotificationWorker();
   });
 }

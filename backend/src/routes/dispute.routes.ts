@@ -4,6 +4,8 @@ import { prisma } from "../lib/prisma";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { env } from "../lib/env";
 import { updateTrustScore } from "../lib/trustScore";
+import { disputeQueue } from "../jobs/queues";
+import logger from "../lib/logger";
 
 export const disputeRouter = Router();
 
@@ -139,7 +141,7 @@ disputeRouter.get(
 );
 
 // ─── POST /disputes/analyze ────────────────────────────────────────────────────
-// Runs hybrid scoring + OpenAI analysis on a dispute and stores the result
+// Queues dispute analysis as a background job via BullMQ
 disputeRouter.post(
   "/analyze",
   requireAuth,
@@ -151,38 +153,9 @@ disputeRouter.post(
     }
 
     try {
-      // Load dispute + match + user data
       const dispute = await (prisma as any).dispute.findUnique({
         where: { id: disputeId },
-        include: {
-          match: {
-            include: {
-              host: {
-                select: {
-                  id: true,
-                  username: true,
-                  profile: { select: { trustScore: true } },
-                },
-              },
-              joiner: {
-                select: {
-                  id: true,
-                  username: true,
-                  profile: { select: { trustScore: true } },
-                },
-              },
-            },
-          },
-          disputant: {
-            select: {
-              id: true,
-              username: true,
-              profile: { select: { trustScore: true } },
-            },
-          },
-        },
       });
-
       if (!dispute) {
         return res.status(404).json({ message: "Dispute not found" });
       }
@@ -195,166 +168,27 @@ disputeRouter.post(
         return res.json({ analysis: existing });
       }
 
-      const match = dispute.match;
-      const reporter = dispute.disputant;
-      const reporterId = reporter.id;
-      const reportedId =
-        match.hostId === reporterId ? match.joinerId : match.hostId;
-      const reportedUser =
-        match.hostId === reporterId ? match.joiner : match.host;
-
-      // Fetch dispute history counts
-      const [reporterDisputeCount, reportedDisputeCount] = await Promise.all([
-        (prisma as any).dispute.count({ where: { disputantId: reporterId } }),
-        (prisma as any).dispute.count({ where: { disputantId: reportedId } }),
-      ]);
-
-      // Fetch win rates from match history
-      const [reporterStats, reportedStats] = await Promise.all([
-        prisma.match.findMany({
-          where: {
-            OR: [{ hostId: reporterId }, { joinerId: reporterId }],
-            status: "COMPLETED",
-          },
-          select: { reportedWinnerId: true },
-        }),
-        prisma.match.findMany({
-          where: {
-            OR: [{ hostId: reportedId }, { joinerId: reportedId }],
-            status: "COMPLETED",
-          },
-          select: { reportedWinnerId: true },
-        }),
-      ]);
-
-      const calcWinRate = (
-        matches: { reportedWinnerId: string | null }[],
-        uid: string,
-      ) => {
-        if (!matches.length) return 50;
-        const wins = matches.filter((m) => m.reportedWinnerId === uid).length;
-        return Math.round((wins / matches.length) * 100);
-      };
-
-      const reporterTrustScore = reporter.profile?.trustScore ?? 50;
-      const reportedTrustScore = reportedUser?.profile?.trustScore ?? 50;
-
-      const features: DisputeFeatures = {
-        reporterTrustScore,
-        reportedTrustScore,
-        reporterDisputeCount,
-        reportedDisputeCount,
-        reporterWinRate: calcWinRate(reporterStats, reporterId),
-        reportedWinRate: calcWinRate(reportedStats, reportedId ?? ""),
-        bothSubmittedSame: match.reportedWinnerId === reporterId,
-        reporterSubmittedFirst: match.reportedById === reporterId,
-        submissionDelayMinutes: 5, // approximation; extend if you track timestamps
-        matchStake: match.stake,
-      };
-
-      const {
-        score: confidence,
-        suggestReporterId,
-        breakdown,
-      } = computeConfidenceScore(features);
-
-      const suggestedWinnerId = suggestReporterId ? reporterId : reportedId;
-
-      // ── OpenAI prompt ──────────────────────────────────────────────────────
-      const prompt = `You are an impartial esports dispute analyst for the WannaBet platform.
-
-MATCH CONTEXT:
-- Game: ${match.game}
-- Stake: $${match.stake / 100}
-- Match status: ${match.status}
-
-PLAYERS:
-- Reporter (${reporter.username}, ID: ${reporterId}): trust score ${reporterTrustScore.toFixed(1)}, dispute history: ${reporterDisputeCount} filed, win rate ${features.reporterWinRate}%
-- Reported player (${reportedUser?.username ?? "Unknown"}, ID: ${reportedId ?? "Unknown"}): trust score ${reportedTrustScore.toFixed(1)}, dispute history: ${reportedDisputeCount} filed, win rate ${features.reportedWinRate}%
-
-DISPUTE DETAILS:
-- Reason: ${dispute.reason ?? "Result dispute"}
-- Description: ${dispute.description ?? "No description provided"}
-- Reporter submitted first: ${features.reporterSubmittedFirst ? "Yes" : "No"}
-- Both agreed on same winner: ${features.bothSubmittedSame ? "Yes" : "No"}
-
-SCORING MODEL RESULT:
-- Confidence score: ${confidence.toFixed(1)}%
-- Suggested winner: ${suggestedWinnerId === reporterId ? reporter.username : (reportedUser?.username ?? "Reported player")}
-- Score breakdown: ${JSON.stringify(breakdown)}
-
-Based on the above data, provide:
-1. A concise reasoning (2-3 sentences) for who should win this dispute
-2. 3-4 key evidence points that support this decision (each as a short string)
-3. Any caveats or factors that moderators should verify manually
-
-Respond in JSON format:
-{
-  "reasoning": "...",
-  "evidenceSummary": ["...", "...", "..."],
-  "caveats": "..."
-}`;
-
-      let aiReasoning = "Analysis based on trust scores and dispute history.";
-      let aiEvidence: string[] = [
-        `Reporter trust score: ${reporterTrustScore.toFixed(1)}`,
-        `Reported player dispute count: ${reportedDisputeCount}`,
-        `Confidence score: ${confidence.toFixed(1)}%`,
-      ];
-      let rawResponse: any = null;
-
-      try {
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [{ role: "user", content: prompt }],
-          response_format: { type: "json_object" },
-          temperature: 0.2,
-        });
-        rawResponse = completion;
-        const parsed = JSON.parse(
-          completion.choices[0]?.message?.content ?? "{}",
-        );
-        if (parsed.reasoning) aiReasoning = parsed.reasoning;
-        if (Array.isArray(parsed.evidenceSummary))
-          aiEvidence = parsed.evidenceSummary;
-      } catch (aiErr) {
-        console.error("OpenAI call failed, using fallback:", aiErr);
-      }
-
-      // Store result
-      const analysis = await (prisma as any).disputeAnalysis.create({
-        data: {
-          disputeId,
-          suggestedWinnerId,
-          confidence,
-          reasoning: aiReasoning,
-          evidenceSummary: aiEvidence,
-          rawResponse,
+      // Queue the heavy analysis as a background job
+      const job = await disputeQueue.add(
+        "analyze",
+        { disputeId },
+        {
+          attempts: 3,
+          backoff: { type: "exponential", delay: 5000 },
         },
-      });
+      );
 
-      // Store training data snapshot
-      await (prisma as any).disputeTrainingData.upsert({
-        where: { disputeId },
-        create: {
-          disputeId,
-          matchId: match.id,
-          playerAId: reporterId,
-          playerBId: reportedId ?? reporterId,
-          submittedResults: [
-            {
-              playerId: match.reportedById,
-              reportedWinnerId: match.reportedWinnerId,
-            },
-          ],
-          aiSuggestedWinnerId: suggestedWinnerId,
-          aiConfidence: confidence,
-        },
-        update: {},
+      logger.info("Dispute analysis job queued", { disputeId, jobId: job.id });
+      return res.status(202).json({
+        message: "Dispute analysis queued",
+        jobId: job.id,
+        disputeId,
       });
-
-      return res.json({ analysis });
     } catch (err: any) {
+      logger.error("Failed to queue dispute analysis", {
+        disputeId,
+        error: err.message,
+      });
       return res
         .status(500)
         .json({ message: err?.message ?? "Analysis failed" });
