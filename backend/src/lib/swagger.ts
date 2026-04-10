@@ -897,7 +897,10 @@ const options: swaggerJsdoc.Options = {
                           properties: {
                             roundNumber: { type: "integer" },
                             name: { type: "string" },
-                            matches: { type: "array", items: { type: "object" } },
+                            matches: {
+                              type: "array",
+                              items: { type: "object" },
+                            },
                           },
                         },
                       },
@@ -957,7 +960,8 @@ const options: swaggerJsdoc.Options = {
           responses: {
             "200": { description: "Team registered" },
             "400": {
-              description: "Tournament full, team invalid, or already registered",
+              description:
+                "Tournament full, team invalid, or already registered",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/Error" },
@@ -972,8 +976,7 @@ const options: swaggerJsdoc.Options = {
         post: {
           tags: ["Tournaments"],
           summary: "Start the tournament",
-          description:
-            "Shuffles teams and generates the bracket. Host only.",
+          description: "Shuffles teams and generates the bracket. Host only.",
           security: [{ BearerAuth: [] }],
           parameters: [
             {
@@ -1359,8 +1362,7 @@ const options: swaggerJsdoc.Options = {
                     context: {
                       type: "string",
                       enum: ["evidence", "message", "profile"],
-                      description:
-                        "Upload context determines the S3 folder",
+                      description: "Upload context determines the S3 folder",
                     },
                   },
                 },
@@ -1384,8 +1386,7 @@ const options: swaggerJsdoc.Options = {
                       fileUrl: {
                         type: "string",
                         format: "uri",
-                        description:
-                          "Public URL of the file after upload",
+                        description: "Public URL of the file after upload",
                       },
                     },
                   },

@@ -34,6 +34,7 @@ import { prisma } from "./lib/prisma";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./lib/swagger";
 import { requestLogger } from "./middleware/requestLogger";
+import { globalRateLimit } from "./middleware/rateLimit";
 
 const app = express();
 
@@ -57,6 +58,7 @@ app.use(
 );
 app.use(express.json());
 app.use(requestLogger);
+app.use(globalRateLimit);
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get("/api/docs.json", (_req, res) => res.json(swaggerSpec));
@@ -88,6 +90,30 @@ app.use("/tournaments", tournamentRouter);
 app.use("/events", eventsRouter);
 app.use("/leaderboard", leaderboardRouter);
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+app.get("/metrics", async (_req, res) => {
+  try {
+    const [totalUsers, totalMatches] = await Promise.all([
+      prisma.user.count(),
+      prisma.match.count(),
+    ]);
+    const onlineKeys = await redis.keys("user:*:status");
+    let activeUsers = 0;
+    for (const key of onlineKeys) {
+      const val = await redis.get(key);
+      if (val === "online" || val === "away" || val === "dnd") activeUsers++;
+    }
+    res.json({
+      status: "ok",
+      uptime: Math.floor(process.uptime()),
+      activeUsers,
+      totalUsers,
+      totalMatches,
+      memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch metrics" });
+  }
+});
 app.get("/stats", async (_req, res) => {
   try {
     const [
