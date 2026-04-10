@@ -198,6 +198,7 @@ AWS_ACCESS_KEY_ID=your_aws_key
 AWS_SECRET_ACCESS_KEY=your_aws_secret
 AWS_REGION=eu-north-1
 AWS_BUCKET_NAME=wannabet-uploads
+CDN_URL=https://your-distribution.cloudfront.net
 ```
 
 ### 3. Database setup
