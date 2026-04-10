@@ -4,10 +4,6 @@ import path from "path";
 import { env } from "./lib/env";
 import { getConfig } from "./lib/platformConfig";
 import {
-  setUserOnline,
-  isUserOnline,
-  getLastSeen,
-  getOnlineUsers,
   publishPresence,
   subscribePresence,
   setTyping,
@@ -169,26 +165,4 @@ app.use("/api/region", regionRouter);
 app.use("/api/regions", regionsRouter);
 app.use("/api/esports", esportsRouter);
 app.use("/api", uploadRouter);
-app.get("/debug/redis", async (_req, res) => {
-  try {
-    await setUserOnline("user1");
-    await setUserOnline("user2");
-    const results = await getOnlineUsers(["user1", "user2", "user3"]);
-    return res.json({ results });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-app.get("/debug/lastseen/:userId", async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const [online, lastSeen] = await Promise.all([
-      isUserOnline(userId),
-      getLastSeen(userId),
-    ]);
-    return res.json({ online, lastSeen });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
 export default app;
