@@ -260,3 +260,18 @@ GET /health   → { status: "ok" }
 GET /metrics  → { activeUsers, totalUsers, totalMatches, uptime, memoryMB }
 GET /stats    → { totalAccounts, completedMatches, activeMatches, onlinePlayers, ... }
 ```
+
+---
+
+## File Uploads & CDN
+
+Files are stored in **AWS S3** (`wannabet-uploads` bucket, `eu-north-1`) and delivered via **CloudFront CDN**.
+
+- **Uploads** go directly to S3 via presigned URLs or server-side `PutObjectCommand` — CloudFront is not involved in writes
+- **Downloads/delivery** go through CloudFront, which acts as an edge cache in front of the S3 bucket
+- CloudFront caches files at 400+ edge locations worldwide, so users load media from the nearest server instead of a single S3 region
+- This reduces latency, lowers S3 transfer costs, and offloads bandwidth from the origin bucket
+
+Upload folders: `profiles/`, `messages/`, `disputes/`, `bug-reports/`, `teams/`
+
+Set `CDN_URL` in your environment to enable CloudFront delivery. Without it, URLs fall back to direct S3 links.
