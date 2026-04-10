@@ -31,6 +31,8 @@ import { leaderboardRouter } from "./routes/leaderboard.routes";
 import { disputeRouter } from "./routes/dispute.routes";
 import { uploadRouter } from "./routes/upload.routes";
 import { prisma } from "./lib/prisma";
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./lib/swagger";
 
 const app = express();
 
@@ -54,6 +56,8 @@ app.use(
 );
 app.use(express.json());
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.get("/api/docs.json", (_req, res) => res.json(swaggerSpec));
 app.use(async (req, res, next) => {
   if (
     req.path === "/health" ||
