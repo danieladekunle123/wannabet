@@ -56,6 +56,9 @@ import { Card, CardContent } from "./components/ui/card";
 import { Star, Flame } from "lucide-react";
 import { AuthProvider } from "./components/AuthContext";
 import { useAuth } from "./components/AuthContext";
+import { LoadingPage } from "./components/LoadingPage";
+import { RateLimitOverlay } from "./components/RateLimitOverlay";
+import { RateLimitProvider } from "./context/RateLimitContext";
 import { Admin } from "./components/Admin";
 import { Moderator } from "./components/Moderator";
 import { FriendsList } from "./components/FriendsList";
@@ -184,10 +187,27 @@ function AppContent() {
     user,
     token,
     isAuthenticated,
+    isLoading,
     logout,
     completeOnboarding,
     refreshUser,
   } = useAuth();
+
+  // Show branded loading page while verifying auth session
+  if (isLoading) {
+    return (
+      <LoadingPage
+        messages={[
+          "Initializing WannaBet...",
+          "Loading your session...",
+          "Connecting to servers...",
+          "Almost ready...",
+        ]}
+        autoRotate
+        duration={1500}
+      />
+    );
+  }
 
   // Fetch top 5 earners for the home leaderboard preview
   useEffect(() => {
@@ -1041,13 +1061,16 @@ function AppContent() {
 export default function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <CurrencyProvider>
-          <PresenceProvider>
-            <AppContent />
-          </PresenceProvider>
-        </CurrencyProvider>
-      </AuthProvider>
+      <RateLimitProvider>
+        <AuthProvider>
+          <CurrencyProvider>
+            <PresenceProvider>
+              <RateLimitOverlay />
+              <AppContent />
+            </PresenceProvider>
+          </CurrencyProvider>
+        </AuthProvider>
+      </RateLimitProvider>
     </ThemeProvider>
   );
 }

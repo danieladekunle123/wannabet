@@ -550,6 +550,7 @@ router.post("/", requireAuth, async (req: any, res) => {
     const userId = req.user!.userId;
     const { allowed } = await checkRateLimit(`rate:message:${userId}`, 30);
     if (!allowed) {
+      res.setHeader("Retry-After", "60");
       return res.status(429).json({ message: "Too many messages. Slow down." });
     }
 

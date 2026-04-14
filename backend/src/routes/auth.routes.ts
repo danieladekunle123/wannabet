@@ -51,6 +51,7 @@ authRouter.post("/login", async (req, res) => {
     const ip = resolveClientIp(req).ip;
     const { allowed } = await checkRateLimit(`rate:login:${ip}`, 10);
     if (!allowed) {
+      res.setHeader("Retry-After", "60");
       return res
         .status(429)
         .json({ message: "Too many login attempts. Try again later." });

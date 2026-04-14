@@ -1,3 +1,5 @@
+import { notifyRateLimit } from "../context/RateLimitContext";
+
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 export type EventRecord = {
@@ -105,6 +107,12 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
     ...opts,
     headers,
   });
+
+  if (res.status === 429) {
+    const retryHeader = res.headers.get("Retry-After");
+    const retrySecs = retryHeader ? parseInt(retryHeader, 10) : 30;
+    notifyRateLimit(true, isNaN(retrySecs) ? 30 : retrySecs);
+  }
 
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import api from "../lib/api";
+import { notifyRateLimit } from "../context/RateLimitContext";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 
@@ -7,6 +8,7 @@ type AuthContextType = {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
+  isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, username: string, password: string) => Promise<void>;
   logout: () => void;
@@ -44,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(
     localStorage.getItem("token"),
   );
+  const [isLoading, setIsLoading] = useState(!!localStorage.getItem("token"));
 
   const isAuthenticated = !!user;
 
@@ -53,6 +56,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await fetch(`${API_URL}/users/me`, {
       headers: { Authorization: `Bearer ${tokenToUse}` },
     });
+    if (res.status === 429) {
+      const retryHeader = res.headers.get("Retry-After");
+      const retrySecs = retryHeader ? parseInt(retryHeader, 10) : 30;
+      notifyRateLimit(true, isNaN(retrySecs) ? 30 : retrySecs);
+    }
     if (!res.ok) throw new Error("Session expired");
     const data = await res.json();
     // If the server returns no user (e.g. deleted account with stale token), force logout.
@@ -98,6 +106,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ email, password }),
     });
 
+    if (res.status === 429) {
+      const retryHeader = res.headers.get("Retry-After");
+      const retrySecs = retryHeader ? parseInt(retryHeader, 10) : 30;
+      notifyRateLimit(true, isNaN(retrySecs) ? 30 : retrySecs);
+    }
+
     const data = await res.json();
 
     if (!res.ok) {
@@ -115,6 +129,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, username, password }),
     });
+
+    if (res.status === 429) {
+      const retryHeader = res.headers.get("Retry-After");
+      const retrySecs = retryHeader ? parseInt(retryHeader, 10) : 30;
+      notifyRateLimit(true, isNaN(retrySecs) ? 30 : retrySecs);
+    }
 
     const data = await res.json();
 
@@ -162,7 +182,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (token) {
-      refreshUser(token).catch(() => logout());
+      setIsLoading(true);
+      refreshUser(token)
+        .catch(() => logout())
+        .finally(() => setIsLoading(false));
     }
   }, [token]);
 
@@ -172,6 +195,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         token,
         isAuthenticated,
+        isLoading,
         login,
         signup,
         logout,
