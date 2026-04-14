@@ -18,7 +18,9 @@ const listeners = new Set<RateLimitListener>();
 
 export function onRateLimitChange(fn: RateLimitListener) {
   listeners.add(fn);
-  return () => { listeners.delete(fn); };
+  return () => {
+    listeners.delete(fn);
+  };
 }
 
 export function notifyRateLimit(limited: boolean, retryAfter?: number) {
@@ -44,7 +46,9 @@ export function RateLimitProvider({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <RateLimitContext.Provider value={{ isRateLimited, retryAfter, setRateLimited }}>
+    <RateLimitContext.Provider
+      value={{ isRateLimited, retryAfter, setRateLimited }}
+    >
       {children}
     </RateLimitContext.Provider>
   );

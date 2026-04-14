@@ -62,7 +62,11 @@ export function globalRateLimit(
       if (!allowed) {
         const retryAfter = GLOBAL_WINDOW;
         res.setHeader("Retry-After", String(retryAfter));
-        logger.warn("Global rate limit exceeded", { identity, ip, path: req.path });
+        logger.warn("Global rate limit exceeded", {
+          identity,
+          ip,
+          path: req.path,
+        });
         return res
           .status(429)
           .json({ message: "Too many requests. Please try again later." });

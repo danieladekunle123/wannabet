@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Zap, Trophy, Target, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import { Zap, Trophy, Target, Sparkles } from "lucide-react";
 
 interface LoadingPageProps {
   message?: string;
@@ -9,11 +9,11 @@ interface LoadingPageProps {
   duration?: number;
 }
 
-export function LoadingPage({ 
-  message = 'Loading...', 
+export function LoadingPage({
+  message = "Loading...",
   messages = [],
   autoRotate = false,
-  duration = 2000 
+  duration = 2000,
 }: LoadingPageProps) {
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
 
@@ -27,7 +27,8 @@ export function LoadingPage({
     }
   }, [autoRotate, messages.length, duration]);
 
-  const displayMessage = messages.length > 0 ? messages[currentMessageIndex] : message;
+  const displayMessage =
+    messages.length > 0 ? messages[currentMessageIndex] : message;
 
   return (
     <div className="fixed inset-0 bg-background z-50 flex items-center justify-center overflow-hidden">
@@ -43,9 +44,9 @@ export function LoadingPage({
           transition={{
             duration: 8,
             repeat: Infinity,
-            ease: "easeInOut"
+            ease: "easeInOut",
           }}
-          style={{ top: '10%', left: '10%' }}
+          style={{ top: "10%", left: "10%" }}
         />
         <motion.div
           className="absolute w-96 h-96 bg-purple-500/10 rounded-full blur-3xl"
@@ -57,9 +58,9 @@ export function LoadingPage({
           transition={{
             duration: 10,
             repeat: Infinity,
-            ease: "easeInOut"
+            ease: "easeInOut",
           }}
-          style={{ bottom: '10%', right: '10%' }}
+          style={{ bottom: "10%", right: "10%" }}
         />
         <motion.div
           className="absolute w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"
@@ -71,9 +72,9 @@ export function LoadingPage({
           transition={{
             duration: 12,
             repeat: Infinity,
-            ease: "easeInOut"
+            ease: "easeInOut",
           }}
-          style={{ top: '50%', left: '50%' }}
+          style={{ top: "50%", left: "50%" }}
         />
       </div>
 
@@ -88,11 +89,11 @@ export function LoadingPage({
             transition={{
               duration: 3,
               repeat: Infinity,
-              ease: "linear"
+              ease: "linear",
             }}
             style={{
-              borderTopColor: 'var(--primary)',
-              borderRightColor: 'transparent',
+              borderTopColor: "var(--primary)",
+              borderRightColor: "transparent",
             }}
           />
 
@@ -103,11 +104,11 @@ export function LoadingPage({
             transition={{
               duration: 2,
               repeat: Infinity,
-              ease: "linear"
+              ease: "linear",
             }}
             style={{
-              borderBottomColor: '#A855F7',
-              borderLeftColor: 'transparent',
+              borderBottomColor: "#A855F7",
+              borderLeftColor: "transparent",
             }}
           />
 
@@ -118,11 +119,11 @@ export function LoadingPage({
             transition={{
               duration: 1.5,
               repeat: Infinity,
-              ease: "linear"
+              ease: "linear",
             }}
             style={{
-              borderTopColor: '#3B82F6',
-              borderRightColor: 'transparent',
+              borderTopColor: "#3B82F6",
+              borderRightColor: "transparent",
             }}
           />
 
@@ -136,7 +137,7 @@ export function LoadingPage({
               transition={{
                 duration: 3,
                 repeat: Infinity,
-                ease: "easeInOut"
+                ease: "easeInOut",
               }}
               className="relative"
             >
@@ -148,13 +149,13 @@ export function LoadingPage({
                   transition={{
                     duration: 3,
                     repeat: Infinity,
-                    ease: "easeInOut"
+                    ease: "easeInOut",
                   }}
                 >
                   <Zap className="h-8 w-8 text-white" fill="currentColor" />
                 </motion.div>
               </div>
-              
+
               {/* Orbiting Particles */}
               {[0, 120, 240].map((angle, i) => (
                 <motion.div
@@ -167,12 +168,12 @@ export function LoadingPage({
                     duration: 2,
                     repeat: Infinity,
                     ease: "linear",
-                    delay: i * 0.2
+                    delay: i * 0.2,
                   }}
                   style={{
-                    top: '50%',
-                    left: '50%',
-                    transformOrigin: '0 0',
+                    top: "50%",
+                    left: "50%",
+                    transformOrigin: "0 0",
                     x: 40 * Math.cos((angle * Math.PI) / 180),
                     y: 40 * Math.sin((angle * Math.PI) / 180),
                   }}
@@ -204,7 +205,7 @@ export function LoadingPage({
           <div className="relative bg-card/50 backdrop-blur-sm border border-primary/30 rounded-lg p-6 shadow-lg">
             {/* Shimmer effect */}
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/10 to-transparent animate-shimmer rounded-lg" />
-            
+
             {/* Message Content */}
             <div className="relative space-y-3">
               <div className="flex items-center justify-center gap-2 text-primary">
@@ -216,7 +217,7 @@ export function LoadingPage({
                   transition={{
                     duration: 1.5,
                     repeat: Infinity,
-                    ease: "easeInOut"
+                    ease: "easeInOut",
                   }}
                 >
                   <Sparkles className="h-5 w-5" />
@@ -233,7 +234,7 @@ export function LoadingPage({
                     duration: 1.5,
                     repeat: Infinity,
                     ease: "easeInOut",
-                    delay: 0.2
+                    delay: 0.2,
                   }}
                 >
                   <Sparkles className="h-5 w-5" />
@@ -291,9 +292,9 @@ export function LoadingPage({
             transition={{
               duration: 4,
               repeat: Infinity,
-              ease: "easeInOut"
+              ease: "easeInOut",
             }}
-            style={{ top: '20%', left: '15%' }}
+            style={{ top: "20%", left: "15%" }}
           >
             <Trophy className="h-12 w-12" />
           </motion.div>
@@ -309,9 +310,9 @@ export function LoadingPage({
               duration: 5,
               repeat: Infinity,
               ease: "easeInOut",
-              delay: 1
+              delay: 1,
             }}
-            style={{ bottom: '20%', right: '15%' }}
+            style={{ bottom: "20%", right: "15%" }}
           >
             <Target className="h-12 w-12" />
           </motion.div>
@@ -327,9 +328,9 @@ export function LoadingPage({
               duration: 6,
               repeat: Infinity,
               ease: "easeInOut",
-              delay: 2
+              delay: 2,
             }}
-            style={{ top: '60%', left: '10%' }}
+            style={{ top: "60%", left: "10%" }}
           >
             <Zap className="h-10 w-10" />
           </motion.div>

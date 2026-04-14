@@ -191,10 +191,20 @@ describe("globalRateLimit", () => {
     const headerCalls: [string, string][] = [];
     const nextCalls: any[] = [];
     const res: any = {};
-    res.setHeader = (k: string, v: string) => { headerCalls.push([k, v]); };
-    res.status = (code: number) => { statusCalls.push(code); return res; };
-    res.json = (body: any) => { jsonCalls.push(body); return res; };
-    const localNext = (...args: any[]) => { nextCalls.push(args); };
+    res.setHeader = (k: string, v: string) => {
+      headerCalls.push([k, v]);
+    };
+    res.status = (code: number) => {
+      statusCalls.push(code);
+      return res;
+    };
+    res.json = (body: any) => {
+      jsonCalls.push(body);
+      return res;
+    };
+    const localNext = (...args: any[]) => {
+      nextCalls.push(args);
+    };
 
     globalRateLimit(req, res, localNext);
 

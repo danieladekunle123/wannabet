@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "../test/test-utils";
-import { notifyRateLimit, onRateLimitChange } from "../context/RateLimitContext";
+import {
+  notifyRateLimit,
+  onRateLimitChange,
+} from "../context/RateLimitContext";
 
 describe("RateLimitContext — event bus", () => {
   it("notifies listeners when rate limited", () => {
@@ -68,7 +71,9 @@ describe("RateLimitContext — 429 detection via apiFetch", () => {
         headers: new Headers({ "Retry-After": "45" }),
         text: () =>
           Promise.resolve(
-            JSON.stringify({ message: "Too many requests. Please try again later." }),
+            JSON.stringify({
+              message: "Too many requests. Please try again later.",
+            }),
           ),
       } as Response),
     );
