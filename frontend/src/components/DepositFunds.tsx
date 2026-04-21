@@ -40,7 +40,8 @@ import {
   Loader2,
 } from "lucide-react";
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY ?? "");
+const stripeKey = import.meta.env.VITE_STRIPE_PUBLIC_KEY;
+const stripePromise = stripeKey ? loadStripe(stripeKey) : null;
 
 interface DepositFundsProps {
   onNavigate?: (tab: string) => void;
@@ -157,7 +158,7 @@ function StripeDepositForm({
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Payments are currently in Stripe test mode — no real charges will
+              Payments are currently in Stripe test mode ï¿½ no real charges will
               be made.
             </p>
           </div>
@@ -420,7 +421,7 @@ export function DepositFunds({ onNavigate }: DepositFundsProps) {
                 {!amountOverLimit && !amountUnderMin && (
                   <p className="text-xs text-muted-foreground">
                     Minimum: {formatCurrencyFromEur(minAmount, currency, rates)}{" "}
-                    · Maximum:{" "}
+                    ï¿½ Maximum:{" "}
                     {formatCurrencyFromEur(maxAmount, currency, rates)}
                   </p>
                 )}

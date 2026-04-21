@@ -193,22 +193,6 @@ function AppContent() {
     refreshUser,
   } = useAuth();
 
-  // Show branded loading page while verifying auth session
-  if (isLoading) {
-    return (
-      <LoadingPage
-        messages={[
-          "Initializing WannaBet...",
-          "Loading your session...",
-          "Connecting to servers...",
-          "Almost ready...",
-        ]}
-        autoRotate
-        duration={1500}
-      />
-    );
-  }
-
   // Fetch top 5 earners for the home leaderboard preview
   useEffect(() => {
     let mounted = true;
@@ -395,6 +379,22 @@ function AppContent() {
     }
     navigate(tabToPath(tab, tab === "search-results" ? query : undefined));
   };
+
+  // Show branded loading page while verifying auth session
+  if (isLoading) {
+    return (
+      <LoadingPage
+        messages={[
+          "Initializing WannaBet...",
+          "Loading your session...",
+          "Connecting to servers...",
+          "Almost ready...",
+        ]}
+        autoRotate
+        duration={1500}
+      />
+    );
+  }
 
   if (!isAuthenticated) {
     if (currentTab === "terms-of-service") {
