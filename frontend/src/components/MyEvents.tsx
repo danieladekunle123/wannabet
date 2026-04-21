@@ -926,12 +926,14 @@ export function MyEvents({ onNavigate, initialTab = "all" }: MyEventsProps) {
                                       className="bg-emerald-600 hover:bg-emerald-700"
                                       onClick={() =>
                                         onNavigate?.(
-                                          `view-match-${event.sourceId}`,
+                                          event.type === "tournament"
+                                            ? `tournament-bracket-${event.sourceId}`
+                                            : `view-match-${event.sourceId}`,
                                         )
                                       }
                                     >
                                       <Play className="h-4 w-4 mr-2" />
-                                      {t("common.join_now")}
+                                      {event.type === "tournament" ? t("my_events.view_bracket") ?? "View Bracket" : t("common.join_now")}
                                     </Button>
                                   )}
                                   {event.status === "upcoming" && (
@@ -941,12 +943,14 @@ export function MyEvents({ onNavigate, initialTab = "all" }: MyEventsProps) {
                                       className="border-primary/30 hover:bg-primary/10"
                                       onClick={() =>
                                         onNavigate?.(
-                                          `view-match-${event.sourceId}`,
+                                          event.type === "tournament"
+                                            ? `tournament-bracket-${event.sourceId}`
+                                            : `view-match-${event.sourceId}`,
                                         )
                                       }
                                     >
                                       <Eye className="h-4 w-4 mr-2" />
-                                      {t("common.view_details")}
+                                      {event.type === "tournament" ? "View Bracket" : t("common.view_details")}
                                     </Button>
                                   )}
                                   {event.status === "completed" && (
@@ -956,7 +960,9 @@ export function MyEvents({ onNavigate, initialTab = "all" }: MyEventsProps) {
                                       className="border-primary/30 hover:bg-primary/10"
                                       onClick={() =>
                                         onNavigate?.(
-                                          `view-match-${event.sourceId}`,
+                                          event.type === "tournament"
+                                            ? `tournament-bracket-${event.sourceId}`
+                                            : `view-match-${event.sourceId}`,
                                         )
                                       }
                                     >
