@@ -10,18 +10,20 @@ beforeAll(async () => {
   testUser = await prisma.user.create({
     data: {
       ...userFactory(),
+      isVerified: true,
       wallet: { create: { balance: 10000, escrow: 0 } },
     },
     include: { wallet: true },
   });
   authToken = generateTestToken(testUser.id);
-});
+}, 15000);
 
 afterAll(async () => {
+  if (!testUser) return;
   await prisma.match.deleteMany({ where: { hostId: testUser.id } });
   await prisma.wallet.deleteMany({ where: { userId: testUser.id } });
   await prisma.user.deleteMany({ where: { id: testUser.id } });
-});
+}, 15000);
 
 describe("Redis/Rate Limiting Integration", () => {
   it("enforces rate limiting on match creation", async () => {

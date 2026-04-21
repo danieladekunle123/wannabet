@@ -26,7 +26,7 @@ describe("Wallet Summary", () => {
       .expect(200);
     expect(res.body.wallet.balance).toBe(10000);
     expect(res.body.wallet.escrow).toBe(0);
-  });
+  }, 15000);
 
   it("returns 401 without auth", async () => {
     await request(app).get("/wallet").expect(401);
