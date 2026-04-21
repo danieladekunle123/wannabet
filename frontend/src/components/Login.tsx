@@ -29,6 +29,8 @@ export function Login({ onNavigate, onSwitchToSignup }: LoginProps) {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [emailUnverified, setEmailUnverified] = useState(false);
+  const [resendStatus, setResendStatus] = useState<"idle" | "loading" | "sent">("idle");
   const { login } = useAuth();
   const googleRedirectUri = window.location.origin;
 
@@ -36,6 +38,7 @@ export function Login({ onNavigate, onSwitchToSignup }: LoginProps) {
     e.preventDefault();
     setIsLoading(true);
     setError("");
+    setEmailUnverified(false);
 
     if (!email || !password) {
       setError("Please fill in all fields");
@@ -47,9 +50,27 @@ export function Login({ onNavigate, onSwitchToSignup }: LoginProps) {
       await login(email, password);
       onNavigate("home");
     } catch (err: any) {
+      if (err.code === "EMAIL_NOT_VERIFIED" || err.message?.includes("verify your email")) {
+        setEmailUnverified(true);
+      }
       setError(err.message || "Invalid email or password");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email || resendStatus !== "idle") return;
+    setResendStatus("loading");
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL ?? ""}/auth/resend-verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      setResendStatus("sent");
+    } catch {
+      setResendStatus("idle");
     }
   };
 
@@ -266,6 +287,27 @@ export function Login({ onNavigate, onSwitchToSignup }: LoginProps) {
                   <Alert className="border-destructive/50 text-destructive">
                     <AlertDescription>{error}</AlertDescription>
                   </Alert>
+                )}
+
+                {emailUnverified && (
+                  <div className="text-center text-sm space-y-1">
+                    <p className="text-muted-foreground">
+                      Didn't get the email?
+                    </p>
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="text-primary p-0 h-auto"
+                      disabled={resendStatus !== "idle"}
+                      onClick={handleResendVerification}
+                    >
+                      {resendStatus === "loading"
+                        ? "Sending..."
+                        : resendStatus === "sent"
+                          ? "Verification email sent!"
+                          : "Resend verification email"}
+                    </Button>
+                  </div>
                 )}
 
                 <Button

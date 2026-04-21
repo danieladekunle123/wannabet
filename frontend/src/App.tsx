@@ -65,6 +65,7 @@ import { FriendsList } from "./components/FriendsList";
 import { TrendingEsportsMatches } from "./components/TrendingEsportsMatches";
 import { ActivityRail } from "./components/ActivityRail";
 import { MyEvents } from "./components/MyEvents";
+import { VerifyEmail } from "./components/VerifyEmail";
 import { io, Socket } from "socket.io-client";
 import { CurrencyProvider } from "./context/CurrencyContext";
 import { PresenceProvider } from "./context/PresenceContext";
@@ -91,6 +92,7 @@ function tabToPath(tab: string, query?: string): string {
     return query ? `/search?q=${encodeURIComponent(query)}` : "/search";
   if (tab === "deactivate-account") return "/settings/deactivate";
   if (tab === "delete-account") return "/settings/delete";
+  if (tab === "verify-email") return "/verify-email";
 
   if (tab.startsWith("view-match-"))
     return `/view-match/${tab.replace("view-match-", "")}`;
@@ -128,6 +130,7 @@ function pathToTab(pathname: string): string {
   if (pathname === "/help") return "help-center";
   if (pathname === "/my-team") return "team-page";
   if (pathname === "/search") return "search-results";
+  if (pathname === "/verify-email") return "verify-email";
 
   const m1 = pathname.match(/^\/view-match\/(.+)$/);
   if (m1) return `view-match-${m1[1]}`;
@@ -402,6 +405,9 @@ function AppContent() {
     }
     if (currentTab === "privacy-policy") {
       return <PrivacyPolicy onNavigate={() => navigate("/")} />;
+    }
+    if (currentTab === "verify-email") {
+      return <VerifyEmail onNavigate={(tab) => { handleNavigate(tab); switchAuthView("login"); }} />;
     }
     return (
       <div className={authTransitionClass}>

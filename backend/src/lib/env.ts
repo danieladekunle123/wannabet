@@ -11,6 +11,9 @@ const EnvSchema = z.object({
   STRIPE_SECRET_KEY: z.string().startsWith("sk_"),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().optional().default(""),
+  SENDGRID_API_KEY: z.string().optional(),
+  SENDGRID_FROM_EMAIL: z.string().optional().default("noreply@wannabet.online"),
+  FRONTEND_URL: z.string().optional().default("http://localhost:3000"),
 });
 
 export const env = EnvSchema.parse(process.env);

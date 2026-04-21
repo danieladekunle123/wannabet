@@ -36,6 +36,7 @@ export function Signup({ onNavigate, onSwitchToLogin }: SignupProps) {
   const [wantsNewsletters, setWantsNewsletters] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [signupSuccess, setSignupSuccess] = useState(false);
   const { signup } = useAuth();
   const googleRedirectUri = window.location.origin;
 
@@ -74,7 +75,7 @@ export function Signup({ onNavigate, onSwitchToLogin }: SignupProps) {
 
     try {
       await signup(formData.email, formData.username, formData.password);
-      onNavigate("onboarding");
+      setSignupSuccess(true);
     } catch (err: any) {
       setError(err.message || "Signup failed");
     } finally {
@@ -176,6 +177,31 @@ export function Signup({ onNavigate, onSwitchToLogin }: SignupProps) {
             </CardHeader>
 
             <CardContent className="space-y-4">
+              {signupSuccess ? (
+                <div className="text-center space-y-4 py-4">
+                  <div className="w-16 h-16 rounded-full bg-emerald-600/20 flex items-center justify-center mx-auto">
+                    <Mail className="h-8 w-8 text-emerald-400" />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold text-foreground">Check your inbox</h3>
+                    <p className="text-sm text-muted-foreground">
+                      We sent a verification link to <span className="text-foreground font-medium">{formData.email}</span>.
+                      Click it to activate your account.
+                    </p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Didn't receive it?{" "}
+                    <button
+                      type="button"
+                      className="text-primary underline underline-offset-2"
+                      onClick={() => onSwitchToLogin()}
+                    >
+                      Go to login to resend
+                    </button>
+                  </p>
+                </div>
+              ) : (
+              <>
               {/* Social Signup Buttons */}
               <div className="space-y-3">
                 <Button
@@ -484,6 +510,8 @@ export function Signup({ onNavigate, onSwitchToLogin }: SignupProps) {
                   Sign in
                 </Button>
               </div>
+              </>
+              )}
             </CardContent>
           </Card>
 

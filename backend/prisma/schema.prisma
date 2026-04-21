@@ -20,7 +20,10 @@ model User {
   profileImageUrl String?
   hasCompletedOnboarding Boolean @default(false)
   isDeactivated           Boolean @default(false)
-
+  // Email verification
+  isVerified                Boolean   @default(false)
+  emailVerificationToken    String?
+  emailVerificationExpires  DateTime?
   // Relations
   wallet            Wallet?
   profile           Profile?

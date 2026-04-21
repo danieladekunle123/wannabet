@@ -933,7 +933,10 @@ export function MyEvents({ onNavigate, initialTab = "all" }: MyEventsProps) {
                                       }
                                     >
                                       <Play className="h-4 w-4 mr-2" />
-                                      {event.type === "tournament" ? t("my_events.view_bracket") ?? "View Bracket" : t("common.join_now")}
+                                      {event.type === "tournament"
+                                        ? (t("my_events.view_bracket") ??
+                                          "View Bracket")
+                                        : t("common.join_now")}
                                     </Button>
                                   )}
                                   {event.status === "upcoming" && (
@@ -950,7 +953,9 @@ export function MyEvents({ onNavigate, initialTab = "all" }: MyEventsProps) {
                                       }
                                     >
                                       <Eye className="h-4 w-4 mr-2" />
-                                      {event.type === "tournament" ? "View Bracket" : t("common.view_details")}
+                                      {event.type === "tournament"
+                                        ? "View Bracket"
+                                        : t("common.view_details")}
                                     </Button>
                                   )}
                                   {event.status === "completed" && (

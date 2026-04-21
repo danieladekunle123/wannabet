@@ -1,8 +1,10 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
 import { env } from "../lib/env";
 import { getUserRegion } from "./ipinfoService";
+import { sendVerificationEmail } from "./emailService";
 
 export async function registerUser(input: {
   email: string;
@@ -39,6 +41,9 @@ export async function registerUser(input: {
 
   const passwordHash = await bcrypt.hash(input.password, 12);
 
+  const emailVerificationToken = crypto.randomBytes(32).toString("hex");
+  const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
   let detectedCountry: string | null = null;
   let detectedRegion: string | null = null;
   let detectedContinent: string | null = null;
@@ -57,6 +62,9 @@ export async function registerUser(input: {
       email: input.email,
       username: input.username,
       passwordHash,
+      isVerified: false,
+      emailVerificationToken,
+      emailVerificationExpires,
       wallet: {
         create: {
           balance: 0,
@@ -82,11 +90,16 @@ export async function registerUser(input: {
     },
   });
 
-  const token = jwt.sign({ userId: user.id }, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN,
-  });
+  // Send verification email (non-blocking)
+  sendVerificationEmail(input.email, emailVerificationToken).catch((err) =>
+    console.error("[auth] Failed to send verification email:", err),
+  );
 
-  return { token, user };
+  return {
+    message:
+      "Account created. Please check your email to verify your account before logging in.",
+    user: { id: user.id, email: user.email, username: user.username },
+  };
 }
 
 export async function loginUser(input: { email: string; password: string }) {
@@ -104,6 +117,15 @@ export async function loginUser(input: { email: string; password: string }) {
   if (!ok) {
     const err: any = new Error("Invalid credentials");
     err.status = 401;
+    throw err;
+  }
+
+  if (!user.isVerified) {
+    const err: any = new Error(
+      "Please verify your email before logging in. Check your inbox for the verification link.",
+    );
+    err.status = 403;
+    err.code = "EMAIL_NOT_VERIFIED";
     throw err;
   }
 

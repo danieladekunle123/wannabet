@@ -115,7 +115,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const data = await res.json();
 
     if (!res.ok) {
-      throw new Error(data.message || "Login failed");
+      const err: any = new Error(data.message || "Login failed");
+      if (data.code) err.code = data.code;
+      throw err;
     }
 
     localStorage.setItem("token", data.token);
@@ -142,9 +144,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(data.message || "Signup failed");
     }
 
-    localStorage.setItem("token", data.token);
-    setToken(data.token);
-    await refreshUser(data.token);
+    // Registration now requires email verification — no token returned yet.
+    // Return the message so the UI can show a "check your email" notice.
+    return data as { message: string; user: { id: string; email: string; username: string } };
   }
 
   function logout() {
