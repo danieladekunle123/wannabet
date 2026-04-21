@@ -32,7 +32,7 @@ describe("POST /auth/register", () => {
       .send({ email, username: `auser${Date.now()}`, password: "Password123!" })
       .expect(201);
 
-    expect(res.body.token).toBeDefined();
+    expect(res.body.message).toBeDefined();
     expect(res.body.user.email).toBe(email);
 
     userIds.push(res.body.user.id);
@@ -128,6 +128,7 @@ describe("POST /auth/login", () => {
         email: loginEmail,
         username: `loginuser${Date.now()}`,
         passwordHash: hash,
+        isVerified: true,
         wallet: { create: { balance: 0 } },
       },
     });

@@ -36,6 +36,7 @@ export async function createTestUser(
   const user = await prisma.user.create({
     data: {
       ...data,
+      isVerified: true,
       wallet: { create: { balance: walletBalance, escrow: 0 } },
       profile: {
         create: {
