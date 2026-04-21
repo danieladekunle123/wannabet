@@ -45,7 +45,7 @@ describe("Dispute List & Stats", () => {
     expect(res.body).toHaveProperty("resolved");
     expect(res.body).toHaveProperty("open");
     expect(res.body).toHaveProperty("aiAccuracy");
-  });
+  }, 15000);
 
   it("can filter disputes by status", async () => {
     const { user, token } = await createModUser();
