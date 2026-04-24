@@ -12,7 +12,7 @@ const EnvSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().optional().default(""),
   SENDGRID_API_KEY: z.string().optional(),
-  SENDGRID_FROM_EMAIL: z.string().optional().default("noreply@wannabet.online"),
+  SENDGRID_FROM_EMAIL: z.string().optional().default("daniel@wannabet.online"),
   FRONTEND_URL: z.string().optional().default("http://localhost:3000"),
 });
 

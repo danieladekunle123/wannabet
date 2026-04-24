@@ -177,3 +177,85 @@ describe("Double-Entry Ledger Invariants", () => {
     expect(balance + escrow).toBe(total);
   });
 });
+
+describe("Tournament Prize Pool Math", () => {
+  function distributePrize(
+    totalPrize: number,
+    memberCount: number,
+  ): { perMember: number; remainder: number } {
+    if (memberCount <= 0) throw new Error("Member count must be positive");
+    const perMember = Math.floor(totalPrize / memberCount);
+    const remainder = totalPrize - perMember * memberCount;
+    return { perMember, remainder };
+  }
+
+  it("splits equally among members", () => {
+    const { perMember, remainder } = distributePrize(3000, 3);
+    expect(perMember).toBe(1000);
+    expect(remainder).toBe(0);
+  });
+
+  it("assigns floor amount with remainder to first member", () => {
+    const { perMember, remainder } = distributePrize(1000, 3);
+    expect(perMember).toBe(333);
+    expect(remainder).toBe(1); // 1000 - 333*3 = 1
+  });
+
+  it("total distributed always equals the prize pool", () => {
+    const cases: [number, number][] = [
+      [7000, 4],
+      [5001, 3],
+      [2500, 7],
+    ];
+    for (const [total, members] of cases) {
+      const { perMember, remainder } = distributePrize(total, members);
+      expect(perMember * members + remainder).toBe(total);
+    }
+  });
+
+  it("single member receives the entire prize", () => {
+    const { perMember, remainder } = distributePrize(5000, 1);
+    expect(perMember).toBe(5000);
+    expect(remainder).toBe(0);
+  });
+});
+
+describe("Stake Validation (cents)", () => {
+  function validateStake(
+    stake: number,
+    minCents: number,
+    maxCents: number,
+  ): true {
+    if (!Number.isInteger(stake))
+      throw new Error("Stake must be an integer (cents)");
+    if (stake < 0) throw new Error("Stake cannot be negative");
+    if (stake > 0 && stake < minCents)
+      throw new Error(`Minimum stake is ${minCents} cents`);
+    if (stake > maxCents) throw new Error(`Maximum stake is ${maxCents} cents`);
+    return true;
+  }
+
+  it("accepts valid cent amounts", () => {
+    expect(validateStake(500, 500, 1_000_000)).toBe(true);
+    expect(validateStake(10000, 500, 1_000_000)).toBe(true);
+    expect(validateStake(0, 500, 1_000_000)).toBe(true); // zero-stake scrim
+  });
+
+  it("rejects float stakes", () => {
+    expect(() => validateStake(25.5, 500, 1_000_000)).toThrow("integer");
+    expect(() => validateStake(0.01, 500, 1_000_000)).toThrow("integer");
+  });
+
+  it("rejects stake below minimum (non-zero)", () => {
+    expect(() => validateStake(100, 500, 1_000_000)).toThrow("Minimum");
+    expect(() => validateStake(1, 500, 1_000_000)).toThrow("Minimum");
+  });
+
+  it("rejects stake above maximum", () => {
+    expect(() => validateStake(2_000_000, 500, 1_000_000)).toThrow("Maximum");
+  });
+
+  it("accepts stake at the exact minimum", () => {
+    expect(validateStake(500, 500, 1_000_000)).toBe(true);
+  });
+});

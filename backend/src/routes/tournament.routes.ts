@@ -3,6 +3,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
+import logger from "../lib/logger";
 import {
   cacheGet,
   cacheSet,
@@ -201,6 +202,122 @@ async function confirmMatchTx(
     where: { id: match.tournamentId },
     data: { status: "completed" },
   });
+
+  // ── Prize payout ─────────────────────────────────────────────────────────
+  const tournamentData = await tx.tournament.findUnique({
+    where: { id: match.tournamentId },
+    select: {
+      entryFee: true,
+      format: true,
+      teamParticipants: { select: { id: true } },
+    },
+  });
+
+  if (!tournamentData || tournamentData.entryFee <= 0) return;
+
+  // Idempotency: skip if payout already applied for this tournament
+  const existingPayout = await tx.ledgerEntry.findFirst({
+    where: { tournamentId: match.tournamentId, type: "payout" },
+  });
+  if (existingPayout) return;
+
+  const totalPrize =
+    tournamentData.entryFee * tournamentData.teamParticipants.length;
+
+  // Determine winning TournamentTeam ID
+  let winnerTTeamId: string;
+  if (tournamentData.format === "round_robin") {
+    // Round-robin: top team by wins then score differential
+    const topTeam = await tx.tournamentTeam.findFirst({
+      where: { tournamentId: match.tournamentId },
+      orderBy: [{ wins: "desc" }, { scoreDiff: "desc" }],
+    });
+    if (!topTeam) return;
+    winnerTTeamId = topTeam.id;
+  } else {
+    // Single/double elimination: winner of the final match
+    winnerTTeamId = winnerId;
+  }
+
+  const winningTTeam = await tx.tournamentTeam.findUnique({
+    where: { id: winnerTTeamId },
+    include: {
+      team: {
+        select: { ownerId: true, members: { select: { userId: true } } },
+      },
+    },
+  });
+  if (!winningTTeam) return;
+
+  // Deduplicated list: owner first, then members
+  const memberIds = [
+    winningTTeam.team.ownerId,
+    ...winningTTeam.team.members
+      .map((m) => m.userId)
+      .filter((id) => id !== winningTTeam.team.ownerId),
+  ];
+
+  const perMember = Math.floor(totalPrize / memberIds.length);
+  // Remainder (from integer division) goes to first member
+  const remainder = totalPrize - perMember * memberIds.length;
+
+  for (let i = 0; i < memberIds.length; i++) {
+    const memberId = memberIds[i] as string; // memberIds is string[], always defined
+    const payout = perMember + (i === 0 ? remainder : 0);
+
+    const wallet = await tx.wallet.upsert({
+      where: { userId: memberId },
+      create: { userId: memberId, balance: 0, escrow: 0 },
+      update: {},
+      select: { id: true },
+    });
+
+    await tx.wallet.update({
+      where: { id: wallet.id },
+      data: { balance: { increment: payout } },
+    });
+
+    await tx.ledgerEntry.create({
+      data: {
+        walletId: wallet.id,
+        type: "payout",
+        amount: payout,
+        tournamentId: match.tournamentId,
+      },
+    });
+  }
+
+  // Release all locked escrow for this tournament and decrement escrow balances
+  const escrowRecords = await tx.escrow.findMany({
+    where: { tournamentId: match.tournamentId, status: "locked" },
+  });
+
+  for (const esc of escrowRecords) {
+    const wallet = await tx.wallet.findUnique({
+      where: { userId: esc.userId },
+      select: { id: true },
+    });
+    if (wallet) {
+      await tx.wallet.update({
+        where: { id: wallet.id },
+        data: { escrow: { decrement: esc.amount } },
+      });
+    }
+  }
+
+  await tx.escrow.updateMany({
+    where: { tournamentId: match.tournamentId, status: "locked" },
+    data: { status: "released" },
+  });
+
+  logger.info("Tournament prize payout distributed", {
+    tournamentId: match.tournamentId,
+    totalPrize,
+    winnerTTeamId,
+    memberIds,
+    perMember,
+    remainder,
+  });
 }
 
 // ─── Zod schemas ─────────────────────────────────────────────────────────────
@@ -209,7 +326,7 @@ const CreateTournamentSchema = z.object({
   name: z.string().min(3).max(200),
   game: z.string().min(2).max(100),
   description: z.string().max(1000).optional(),
-  entryFee: z.number().min(0).optional(),
+  entryFee: z.number().int().min(0).optional(), // in cents (e.g. €25 = 2500)
   startAt: z.string().optional(),
   format: z
     .enum(["single_elimination", "double_elimination", "round_robin"])
@@ -486,10 +603,51 @@ tournamentRouter.post("/:id/teams", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Tournament is full" });
     }
 
-    const entry = await prisma.tournamentTeam.create({
-      data: { tournamentId: id, teamId, seed: currentCount + 1 },
-      include: { team: { select: { id: true, name: true } } },
+    const entry = await prisma.$transaction(async (tx) => {
+      // Deduct entry fee from the registrant's balance → escrow
+      if (tournament.entryFee > 0) {
+        const wallet = await tx.wallet.findUnique({ where: { userId } });
+        if (!wallet || wallet.balance < tournament.entryFee) {
+          throw new Error(
+            `Insufficient balance. Entry fee: €${(tournament.entryFee / 100).toFixed(2)}`,
+          );
+        }
+        await tx.wallet.update({
+          where: { id: wallet.id },
+          data: {
+            balance: { decrement: tournament.entryFee },
+            escrow: { increment: tournament.entryFee },
+          },
+        });
+        await tx.ledgerEntry.create({
+          data: {
+            walletId: wallet.id,
+            type: "escrow_lock",
+            amount: tournament.entryFee,
+            tournamentId: id,
+          },
+        });
+        await tx.escrow.create({
+          data: {
+            userId,
+            tournamentId: id,
+            amount: tournament.entryFee,
+            status: "locked",
+          },
+        });
+        logger.info("Tournament entry fee locked to escrow", {
+          userId,
+          tournamentId: id,
+          amount: tournament.entryFee,
+        });
+      }
+
+      return tx.tournamentTeam.create({
+        data: { tournamentId: id, teamId, seed: currentCount + 1 },
+        include: { team: { select: { id: true, name: true } } },
+      });
     });
+
     await invalidateAllLobbyCaches();
     return res.status(201).json({ entry });
   } catch (err: any) {
@@ -526,9 +684,47 @@ tournamentRouter.delete("/:id/teams/:teamId", requireAuth, async (req, res) => {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    await prisma.tournamentTeam.delete({
-      where: { tournamentId_teamId: { tournamentId: id, teamId } },
+    await prisma.$transaction(async (tx) => {
+      // Refund entry fee if the registrant has a locked escrow for this tournament
+      if (tournament.entryFee > 0) {
+        const escrowRecord = await tx.escrow.findFirst({
+          where: { userId, tournamentId: id, status: "locked" },
+        });
+        if (escrowRecord) {
+          const wallet = await tx.wallet.findUnique({ where: { userId } });
+          if (wallet) {
+            await tx.wallet.update({
+              where: { id: wallet.id },
+              data: {
+                balance: { increment: tournament.entryFee },
+                escrow: { decrement: tournament.entryFee },
+              },
+            });
+            await tx.ledgerEntry.create({
+              data: {
+                walletId: wallet.id,
+                type: "refund",
+                amount: tournament.entryFee,
+                tournamentId: id,
+              },
+            });
+            await tx.escrow.update({
+              where: { id: escrowRecord.id },
+              data: { status: "refunded" },
+            });
+            logger.info("Tournament entry fee refunded on team leave", {
+              userId,
+              tournamentId: id,
+              amount: tournament.entryFee,
+            });
+          }
+        }
+      }
+      await tx.tournamentTeam.delete({
+        where: { tournamentId_teamId: { tournamentId: id, teamId } },
+      });
     });
+
     await invalidateAllLobbyCaches();
     return res.json({ ok: true });
   } catch (err: any) {
@@ -964,10 +1160,52 @@ tournamentRouter.delete("/:id", requireAuth, async (req, res) => {
           "Cannot cancel an in-progress tournament that has participants",
       });
 
-    await prisma.tournament.update({
-      where: { id },
-      data: { status: "cancelled" },
+    await prisma.$transaction(async (tx) => {
+      await tx.tournament.update({
+        where: { id },
+        data: { status: "cancelled" },
+      });
+
+      // Refund all locked entry fees when the tournament is cancelled
+      if (tournament.entryFee > 0) {
+        const escrowRecords = await tx.escrow.findMany({
+          where: { tournamentId: id, status: "locked" },
+        });
+        for (const esc of escrowRecords) {
+          const wallet = await tx.wallet.findUnique({
+            where: { userId: esc.userId },
+            select: { id: true },
+          });
+          if (wallet) {
+            await tx.wallet.update({
+              where: { id: wallet.id },
+              data: {
+                balance: { increment: esc.amount },
+                escrow: { decrement: esc.amount },
+              },
+            });
+            await tx.ledgerEntry.create({
+              data: {
+                walletId: wallet.id,
+                type: "refund",
+                amount: esc.amount,
+                tournamentId: id,
+              },
+            });
+          }
+        }
+        await tx.escrow.updateMany({
+          where: { tournamentId: id, status: "locked" },
+          data: { status: "refunded" },
+        });
+        logger.info("Tournament cancelled: entry fees refunded", {
+          tournamentId: id,
+          teamsRefunded: escrowRecords.length,
+          totalRefunded: escrowRecords.reduce((s, e) => s + e.amount, 0),
+        });
+      }
     });
+
     await invalidateAllLobbyCaches();
     return res.json({ ok: true });
   } catch (err: any) {
@@ -975,7 +1213,8 @@ tournamentRouter.delete("/:id", requireAuth, async (req, res) => {
   }
 });
 
-// Legacy join (individual user) — kept for backward compat
+// Solo join — for teamSize === 1 tournaments (no pre-existing team required).
+// Creates a solo team internally and registers it in the bracket.
 tournamentRouter.post("/:id/join", requireAuth, async (req, res) => {
   const userId = req.user!.userId;
   const { id } = req.params;
@@ -983,12 +1222,41 @@ tournamentRouter.post("/:id/join", requireAuth, async (req, res) => {
     const tournament = await prisma.tournament.findUnique({ where: { id } });
     if (!tournament)
       return res.status(404).json({ message: "Tournament not found" });
-    if (tournament.entryFee > 0) {
-      const wallet = await prisma.wallet.findUnique({ where: { userId } });
-      if (!wallet || wallet.balance < tournament.entryFee) {
-        return res.status(400).json({ message: "Insufficient balance" });
-      }
-      await prisma.$transaction(async (tx) => {
+
+    if (tournament.teamSize !== 1) {
+      return res.status(400).json({
+        message:
+          "This tournament requires a team. Use POST /tournaments/:id/teams instead.",
+      });
+    }
+    if (!["upcoming", "open"].includes(tournament.status)) {
+      return res
+        .status(400)
+        .json({ message: "Tournament is not open for registration" });
+    }
+
+    const currentCount = await prisma.tournamentTeam.count({
+      where: { tournamentId: id },
+    });
+    if (currentCount >= tournament.maxParticipants) {
+      return res.status(400).json({ message: "Tournament is full" });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true },
+    });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const entry = await prisma.$transaction(async (tx) => {
+      // Deduct entry fee if applicable
+      if (tournament.entryFee > 0) {
+        const wallet = await tx.wallet.findUnique({ where: { userId } });
+        if (!wallet || wallet.balance < tournament.entryFee) {
+          throw new Error(
+            `Insufficient balance. Entry fee: €${(tournament.entryFee / 100).toFixed(2)}`,
+          );
+        }
         await tx.wallet.update({
           where: { id: wallet.id },
           data: {
@@ -1012,18 +1280,39 @@ tournamentRouter.post("/:id/join", requireAuth, async (req, res) => {
             status: "locked",
           },
         });
-        await tx.tournamentEntry.create({
-          data: { tournamentId: id, userId, paid: true },
+        logger.info("Solo tournament entry fee locked to escrow", {
+          userId,
+          tournamentId: id,
+          amount: tournament.entryFee,
         });
+      }
+
+      // Create a solo team for this user — treated as a single-player team in the bracket
+      const soloTeam = await tx.team.create({
+        data: {
+          name: user.username,
+          game: tournament.game,
+          ownerId: userId,
+        },
       });
-    } else {
-      await prisma.tournamentEntry.create({
-        data: { tournamentId: id, userId, paid: false },
+
+      return tx.tournamentTeam.create({
+        data: {
+          tournamentId: id,
+          teamId: soloTeam.id,
+          seed: currentCount + 1,
+        },
+        include: { team: { select: { id: true, name: true } } },
       });
-    }
+    });
+
     await invalidateAllLobbyCaches();
-    return res.json({ message: "Joined" });
+    return res.status(201).json({ entry });
   } catch (err: any) {
+    if ((err as any).code === "P2002")
+      return res
+        .status(400)
+        .json({ message: "Already registered in this tournament" });
     return res.status(400).json({ message: err.message ?? "Bad request" });
   }
 });

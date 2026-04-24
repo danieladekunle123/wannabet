@@ -152,7 +152,7 @@ describe("Dispute Resolution Flow", () => {
     const create = await request(app)
       .post("/matches")
       .set("Authorization", `Bearer ${hostToken}`)
-      .send({ game: "Test", stake: 100 })
+      .send({ game: "Test", stake: 500 })
       .expect(201);
     const matchId = create.body.match.id;
     matchIds.push(matchId);
@@ -201,5 +201,175 @@ describe("Dispute Resolution Flow", () => {
       .set("Authorization", `Bearer ${modToken}`)
       .send({ winnerId: "someone", outcome: "approved_reporter" })
       .expect(404);
+  });
+});
+
+describe("Dispute Financial Settlement", () => {
+  it("credits winner with 2x stake and clears all escrow", async () => {
+    const { user: host, token: hostToken } = await createTestUser({}, 5000);
+    const { user: joiner, token: joinerToken } = await createTestUser({}, 5000);
+    const { user: mod, token: modToken } = await createModUser();
+    userIds.push(host.id, joiner.id, mod.id);
+
+    const create = await request(app)
+      .post("/matches")
+      .set("Authorization", `Bearer ${hostToken}`)
+      .send({ game: "Test", stake: 1000 })
+      .expect(201);
+    const matchId = create.body.match.id;
+    matchIds.push(matchId);
+
+    await request(app)
+      .post(`/matches/${matchId}/join`)
+      .set("Authorization", `Bearer ${joinerToken}`)
+      .expect(200);
+
+    await prisma.match.update({
+      where: { id: matchId },
+      data: { status: "ACTIVE" },
+    });
+
+    await request(app)
+      .post(`/matches/${matchId}/report`)
+      .set("Authorization", `Bearer ${hostToken}`)
+      .send({ winnerId: host.id })
+      .expect(200);
+
+    const dispute = await (prisma as any).dispute.create({
+      data: {
+        matchId,
+        disputantId: joiner.id,
+        reason: "Wrong result",
+        status: "open",
+      },
+    });
+
+    // Moderator overrides — joiner is the actual winner
+    await request(app)
+      .post(`/disputes/${dispute.id}/resolve`)
+      .set("Authorization", `Bearer ${modToken}`)
+      .send({ winnerId: joiner.id, outcome: "approved_reporter" })
+      .expect(200);
+
+    const joinerWallet = await prisma.wallet.findUnique({
+      where: { userId: joiner.id },
+    });
+    const hostWallet = await prisma.wallet.findUnique({
+      where: { userId: host.id },
+    });
+
+    // joiner (winner): 5000 - 1000 (escrow on join) + 2000 (payout) = 6000
+    expect(joinerWallet!.balance).toBe(6000);
+    expect(joinerWallet!.escrow).toBe(0);
+    // host (loser): 5000 - 1000 (escrow on create), escrow released
+    expect(hostWallet!.balance).toBe(4000);
+    expect(hostWallet!.escrow).toBe(0);
+  });
+
+  it("payout is idempotent — second resolve attempt is blocked", async () => {
+    const { user: host, token: hostToken } = await createTestUser({}, 5000);
+    const { user: joiner, token: joinerToken } = await createTestUser({}, 5000);
+    const { user: mod, token: modToken } = await createModUser();
+    userIds.push(host.id, joiner.id, mod.id);
+
+    const create = await request(app)
+      .post("/matches")
+      .set("Authorization", `Bearer ${hostToken}`)
+      .send({ game: "Test", stake: 500 })
+      .expect(201);
+    const matchId = create.body.match.id;
+    matchIds.push(matchId);
+
+    await request(app)
+      .post(`/matches/${matchId}/join`)
+      .set("Authorization", `Bearer ${joinerToken}`)
+      .expect(200);
+
+    const dispute = await (prisma as any).dispute.create({
+      data: {
+        matchId,
+        disputantId: joiner.id,
+        reason: "Test",
+        status: "open",
+      },
+    });
+
+    // Resolve once
+    await request(app)
+      .post(`/disputes/${dispute.id}/resolve`)
+      .set("Authorization", `Bearer ${modToken}`)
+      .send({ winnerId: joiner.id, outcome: "approved_reporter" })
+      .expect(200);
+
+    // Attempt to resolve again — should be blocked
+    const second = await request(app)
+      .post(`/disputes/${dispute.id}/resolve`)
+      .set("Authorization", `Bearer ${modToken}`)
+      .send({ winnerId: host.id, outcome: "denied_reporter" })
+      .expect(400);
+
+    expect(second.body.message).toMatch(/already resolved/i);
+
+    // Winner wallet reflects only a single payout
+    const winnerWallet = await prisma.wallet.findUnique({
+      where: { userId: joiner.id },
+    });
+    expect(winnerWallet!.balance).toBe(5500); // 5000 - 500 + 1000
+  });
+
+  it("creates two payout ledger entries (winner +pot, loser -stake)", async () => {
+    const { user: host, token: hostToken } = await createTestUser({}, 5000);
+    const { user: joiner, token: joinerToken } = await createTestUser({}, 5000);
+    const { user: mod, token: modToken } = await createModUser();
+    userIds.push(host.id, joiner.id, mod.id);
+
+    const create = await request(app)
+      .post("/matches")
+      .set("Authorization", `Bearer ${hostToken}`)
+      .send({ game: "Test", stake: 1000 })
+      .expect(201);
+    const matchId = create.body.match.id;
+    matchIds.push(matchId);
+
+    await request(app)
+      .post(`/matches/${matchId}/join`)
+      .set("Authorization", `Bearer ${joinerToken}`)
+      .expect(200);
+
+    await prisma.match.update({
+      where: { id: matchId },
+      data: { status: "ACTIVE" },
+    });
+
+    await request(app)
+      .post(`/matches/${matchId}/report`)
+      .set("Authorization", `Bearer ${hostToken}`)
+      .send({ winnerId: host.id })
+      .expect(200);
+
+    const dispute = await (prisma as any).dispute.create({
+      data: {
+        matchId,
+        disputantId: joiner.id,
+        reason: "Wrong result",
+        status: "open",
+      },
+    });
+
+    await request(app)
+      .post(`/disputes/${dispute.id}/resolve`)
+      .set("Authorization", `Bearer ${modToken}`)
+      .send({ winnerId: host.id, outcome: "denied_reporter" })
+      .expect(200);
+
+    const entries = await prisma.ledgerEntry.findMany({
+      where: { matchId, type: "payout" },
+    });
+    expect(entries).toHaveLength(2);
+
+    const winEntry = entries.find((e) => e.amount > 0)!;
+    const lossEntry = entries.find((e) => e.amount < 0)!;
+    expect(winEntry.amount).toBe(2000); // pot (2x stake)
+    expect(lossEntry.amount).toBe(-1000); // -stake
   });
 });

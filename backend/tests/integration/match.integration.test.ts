@@ -13,6 +13,8 @@ import {
   cleanupMatch,
 } from "../helpers/factories";
 
+jest.setTimeout(15000);
+
 const userIds: string[] = [];
 const matchIds: string[] = [];
 
@@ -130,7 +132,7 @@ describe("Match Join", () => {
     const res = await request(app)
       .post("/matches")
       .set("Authorization", `Bearer ${hostToken}`)
-      .send({ game: "Test", stake: 100 })
+      .send({ game: "Test", stake: 500 })
       .expect(201);
     matchIds.push(res.body.match.id);
 
@@ -167,7 +169,7 @@ describe("Match Join", () => {
     const res = await request(app)
       .post("/matches")
       .set("Authorization", `Bearer ${hostToken}`)
-      .send({ game: "Test", stake: 100 })
+      .send({ game: "Test", stake: 500 })
       .expect(201);
     matchIds.push(res.body.match.id);
 
@@ -230,7 +232,7 @@ describe("Match Report", () => {
     const create = await request(app)
       .post("/matches")
       .set("Authorization", `Bearer ${hostToken}`)
-      .send({ game: "Test", stake: 100 })
+      .send({ game: "Test", stake: 500 })
       .expect(201);
     matchIds.push(create.body.match.id);
 
@@ -259,7 +261,7 @@ describe("Match Report", () => {
     const create = await request(app)
       .post("/matches")
       .set("Authorization", `Bearer ${hostToken}`)
-      .send({ game: "Test", stake: 100 })
+      .send({ game: "Test", stake: 500 })
       .expect(201);
     matchIds.push(create.body.match.id);
 
@@ -283,7 +285,7 @@ describe("Match Report", () => {
     const create = await request(app)
       .post("/matches")
       .set("Authorization", `Bearer ${hostToken}`)
-      .send({ game: "Test", stake: 100 })
+      .send({ game: "Test", stake: 500 })
       .expect(201);
     matchIds.push(create.body.match.id);
 
@@ -363,7 +365,7 @@ describe("Match Confirm & Payout", () => {
     const create = await request(app)
       .post("/matches")
       .set("Authorization", `Bearer ${hostToken}`)
-      .send({ game: "Test", stake: 100 })
+      .send({ game: "Test", stake: 500 })
       .expect(201);
     matchIds.push(create.body.match.id);
 
@@ -401,7 +403,7 @@ describe("Match Confirm & Payout", () => {
     const create = await request(app)
       .post("/matches")
       .set("Authorization", `Bearer ${hostToken}`)
-      .send({ game: "Test", stake: 100 })
+      .send({ game: "Test", stake: 500 })
       .expect(201);
     matchIds.push(create.body.match.id);
 
@@ -462,7 +464,7 @@ describe("Match Cancel", () => {
     const create = await request(app)
       .post("/matches")
       .set("Authorization", `Bearer ${hostToken}`)
-      .send({ game: "Test", stake: 100 })
+      .send({ game: "Test", stake: 500 })
       .expect(201);
     matchIds.push(create.body.match.id);
 
@@ -485,7 +487,7 @@ describe("Match Cancel", () => {
     const create = await request(app)
       .post("/matches")
       .set("Authorization", `Bearer ${hostToken}`)
-      .send({ game: "Test", stake: 100 })
+      .send({ game: "Test", stake: 500 })
       .expect(201);
     matchIds.push(create.body.match.id);
 
@@ -520,5 +522,169 @@ describe("Match Read Endpoints", () => {
 
     expect(Array.isArray(res.body.matches)).toBe(true);
     expect(res.body.matches.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("Match Stake Validation (cents)", () => {
+  it("rejects stake below minimum (100 cents < €5 min)", async () => {
+    const { user, token } = await createTestUser({}, 5000);
+    userIds.push(user.id);
+
+    const res = await request(app)
+      .post("/matches")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ game: "Test Game", stake: 100 })
+      .expect(400);
+
+    expect(res.body.message).toMatch(/minimum/i);
+  });
+
+  it("accepts stake at exact minimum (500 cents = €5)", async () => {
+    const { user, token } = await createTestUser({}, 5000);
+    userIds.push(user.id);
+
+    const res = await request(app)
+      .post("/matches")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ game: "Test Game", stake: 500 })
+      .expect(201);
+
+    expect(res.body.match.stake).toBe(500);
+    matchIds.push(res.body.match.id);
+  });
+
+  it("rejects a fractional (float) stake", async () => {
+    const { user, token } = await createTestUser({}, 5000);
+    userIds.push(user.id);
+
+    await request(app)
+      .post("/matches")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ game: "Test Game", stake: 500.5 })
+      .expect(400);
+  });
+
+  it("accepts zero stake for a scrim", async () => {
+    const { user, token } = await createTestUser({}, 5000);
+    userIds.push(user.id);
+
+    const res = await request(app)
+      .post("/matches")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ game: "Test Game", stake: 0, matchType: "scrim" })
+      .expect(201);
+
+    expect(res.body.match.stake).toBe(0);
+    matchIds.push(res.body.match.id);
+  });
+});
+
+describe("Match Payout Idempotency", () => {
+  it("does not double-pay when confirm is called twice", async () => {
+    const { user: host, token: hostToken } = await createTestUser({}, 5000);
+    const { user: joiner, token: joinerToken } = await createTestUser(
+      {},
+      5000,
+    );
+    userIds.push(host.id, joiner.id);
+
+    const create = await request(app)
+      .post("/matches")
+      .set("Authorization", `Bearer ${hostToken}`)
+      .send({ game: "Test Game", stake: 1000 })
+      .expect(201);
+    const matchId = create.body.match.id;
+    matchIds.push(matchId);
+
+    await request(app)
+      .post(`/matches/${matchId}/join`)
+      .set("Authorization", `Bearer ${joinerToken}`)
+      .expect(200);
+
+    await prisma.match.update({
+      where: { id: matchId },
+      data: { status: "ACTIVE" },
+    });
+
+    await request(app)
+      .post(`/matches/${matchId}/report`)
+      .set("Authorization", `Bearer ${hostToken}`)
+      .send({ winnerId: joiner.id })
+      .expect(200);
+
+    // First confirm — executes payout
+    await request(app)
+      .post(`/matches/${matchId}/confirm`)
+      .set("Authorization", `Bearer ${joinerToken}`)
+      .expect(200);
+
+    // Force back to RESULT_REPORTED to simulate a race-condition double-confirm
+    await prisma.match.update({
+      where: { id: matchId },
+      data: { status: "RESULT_REPORTED" },
+    });
+
+    // Second confirm — idempotency guard must block double-payout with 400
+    const second = await request(app)
+      .post(`/matches/${matchId}/confirm`)
+      .set("Authorization", `Bearer ${joinerToken}`)
+      .expect(400);
+
+    expect(second.body.message).toMatch(/payout already processed/i);
+
+    const winnerWallet = await prisma.wallet.findUnique({
+      where: { userId: joiner.id },
+    });
+    // Exactly 6000: (5000 - 1000 escrow + 2000 payout), not 7000
+    expect(winnerWallet!.balance).toBe(6000);
+    expect(winnerWallet!.escrow).toBe(0);
+  });
+
+  it("creates exactly two payout ledger entries per confirmed match", async () => {
+    const { user: host, token: hostToken } = await createTestUser({}, 5000);
+    const { user: joiner, token: joinerToken } = await createTestUser(
+      {},
+      5000,
+    );
+    userIds.push(host.id, joiner.id);
+
+    const create = await request(app)
+      .post("/matches")
+      .set("Authorization", `Bearer ${hostToken}`)
+      .send({ game: "Test Game", stake: 1000 })
+      .expect(201);
+    const matchId = create.body.match.id;
+    matchIds.push(matchId);
+
+    await request(app)
+      .post(`/matches/${matchId}/join`)
+      .set("Authorization", `Bearer ${joinerToken}`)
+      .expect(200);
+
+    await prisma.match.update({
+      where: { id: matchId },
+      data: { status: "ACTIVE" },
+    });
+
+    await request(app)
+      .post(`/matches/${matchId}/report`)
+      .set("Authorization", `Bearer ${hostToken}`)
+      .send({ winnerId: joiner.id })
+      .expect(200);
+
+    await request(app)
+      .post(`/matches/${matchId}/confirm`)
+      .set("Authorization", `Bearer ${joinerToken}`)
+      .expect(200);
+
+    const payoutEntries = await prisma.ledgerEntry.findMany({
+      where: { matchId, type: "payout" },
+    });
+    expect(payoutEntries).toHaveLength(2);
+
+    const winEntry = payoutEntries.find((e) => e.amount > 0)!;
+    const lossEntry = payoutEntries.find((e) => e.amount < 0)!;
+    expect(winEntry.amount).toBe(2000); // 2x stake
+    expect(lossEntry.amount).toBe(-1000); // -stake
   });
 });

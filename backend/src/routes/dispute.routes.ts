@@ -286,6 +286,86 @@ disputeRouter.post(
         });
       }
 
+      // ── Financial settlement ──────────────────────────────────────────────
+      // Winner receives full pot (their stake back + loser's stake).
+      // Loser forfeits their escrowed stake to the winner.
+      const stake = match.stake;
+      if (stake > 0) {
+        const loserId =
+          winnerId === match.hostId ? match.joinerId : match.hostId;
+        if (loserId) {
+          await prisma.$transaction(async (tx) => {
+            // Idempotency: skip if payout already applied for this match
+            const existingPayout = await tx.ledgerEntry.findFirst({
+              where: { matchId: match.id, type: "payout" },
+            });
+            if (existingPayout) return;
+
+            const winnerWallet = await tx.wallet.findUnique({
+              where: { userId: winnerId },
+            });
+            const loserWallet = await tx.wallet.findUnique({
+              where: { userId: loserId },
+            });
+
+            if (!winnerWallet || !loserWallet) {
+              logger.error("Wallet not found during dispute payout", {
+                disputeId,
+                winnerId,
+                loserId,
+              });
+              return;
+            }
+
+            const pot = stake * 2;
+
+            await tx.wallet.update({
+              where: { id: winnerWallet.id },
+              data: {
+                escrow: { decrement: stake },
+                balance: { increment: pot },
+              },
+            });
+
+            await tx.wallet.update({
+              where: { id: loserWallet.id },
+              data: { escrow: { decrement: stake } },
+            });
+
+            await tx.ledgerEntry.createMany({
+              data: [
+                {
+                  walletId: winnerWallet.id,
+                  type: "payout",
+                  amount: pot,
+                  matchId: match.id,
+                },
+                {
+                  walletId: loserWallet.id,
+                  type: "payout",
+                  amount: -stake,
+                  matchId: match.id,
+                },
+              ],
+            });
+
+            await tx.escrow.updateMany({
+              where: { matchId: match.id, status: "locked" },
+              data: { status: "released" },
+            });
+
+            logger.info("Dispute payout executed", {
+              disputeId,
+              matchId: match.id,
+              winnerId,
+              loserId,
+              pot,
+              stake,
+            });
+          });
+        }
+      }
+
       return res.json({ dispute: updated });
     } catch (err: any) {
       return res

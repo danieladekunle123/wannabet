@@ -19,7 +19,8 @@ export const matchRouter = Router();
 
 const CreateMatchSchema = z.object({
   game: z.string().min(2).max(50),
-  stake: z.number().min(0).max(10000),
+  // stake in cents (e.g. €25 = 2500). Max €10,000 = 1,000,000 cents.
+  stake: z.number().int().min(0).max(1_000_000),
   matchType: z.enum(["scrim", "wager", "custom"]).optional(),
   title: z.string().min(1).max(140).optional(),
   description: z.string().max(2000).optional(),
@@ -76,14 +77,15 @@ matchRouter.post("/", requireAuth, async (req, res) => {
     // Enforce platform config rules
     const config = await getConfig();
 
-    if (stake > 0 && stake < config.minWagerAmount) {
+    // config amounts are in euros; stake is in cents
+    if (stake > 0 && stake < config.minWagerAmount * 100) {
       return res.status(400).json({
-        message: `Minimum wager amount is $${config.minWagerAmount}`,
+        message: `Minimum wager amount is €${config.minWagerAmount}`,
       });
     }
-    if (stake > config.maxWagerAmount) {
+    if (stake > config.maxWagerAmount * 100) {
       return res.status(400).json({
-        message: `Maximum wager amount is $${config.maxWagerAmount}`,
+        message: `Maximum wager amount is €${config.maxWagerAmount}`,
       });
     }
 
@@ -191,7 +193,7 @@ matchRouter.post("/", requireAuth, async (req, res) => {
           userId: userId,
           actorId: userId,
           type: "MATCH_CREATED",
-          message: `Created ${normalizedMatchType} match ${result.match.id} (${game}) for $${stake}`,
+          message: `Created ${normalizedMatchType} match ${result.match.id} (${game}) for €${(stake / 100).toFixed(2)}`,
           meta: {
             matchId: result.match.id,
             game,
@@ -573,6 +575,22 @@ matchRouter.post("/:id/confirm", requireAuth, async (req, res) => {
         throw new Error("Wallet not found");
       }
 
+      // Idempotency: do not double-pay if confirm is called twice
+      const existingPayout = await tx.ledgerEntry.findFirst({
+        where: { matchId, type: "payout" },
+      });
+      if (existingPayout) {
+        throw new Error("Payout already processed for this match");
+      }
+
+      logger.info("Match payout: crediting winner, releasing escrow", {
+        matchId,
+        winnerId,
+        loserId,
+        stake,
+        pot,
+      });
+
       // Winner payout
       await tx.wallet.update({
         where: { id: winnerWallet.id },
@@ -625,7 +643,7 @@ matchRouter.post("/:id/confirm", requireAuth, async (req, res) => {
             userId: winnerId,
             actorId: confirmerId,
             type: "MATCH_WON",
-            message: `Won match ${matchId} and received $${pot}`,
+            message: `Won match ${matchId} and received €${(pot / 100).toFixed(2)}`,
             meta: { matchId, amount: pot },
           },
           {
