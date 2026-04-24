@@ -964,7 +964,7 @@ export function CreateMatch({
                 disabled={!selectedGame?.name}
                 onClick={async () => {
                   try {
-                    const stake = matchType === "scrim" ? 0 : entryFee[0];
+                    const stake = matchType === "scrim" ? 0 : entryFee[0] * 100;
                     const gameName = selectedGame?.name?.trim() || "";
                     if (!gameName) return;
 
@@ -1008,7 +1008,7 @@ export function CreateMatch({
                         name: normalizedTitle,
                         game: gameName,
                         description: description.trim() || undefined,
-                        entryFee: entryFee[0],
+                        entryFee: entryFee[0] * 100,
                         startAt: startAtIso,
                         participantCount,
                         teamSize: teamSize[0],
