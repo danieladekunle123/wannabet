@@ -31,3 +31,7 @@ Thumbs.db
 
 # Legacy upload directory (now using S3)
 backend/uploads/
+# Database dumps (never commit real data)
+*.sql
+*.dump
+!backend/prisma/migrations/**/*.sql

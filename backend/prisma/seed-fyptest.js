@@ -4,12 +4,15 @@
  *
  * Run with:
  *   cd backend
- *   node prisma/seed-fyptest.js
+ *   SEED_PASSWORD=<password> node prisma/seed-fyptest.js
+ *
+ * If SEED_PASSWORD is not set, a random password is generated and printed once.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 
 const prisma = new PrismaClient();
 
@@ -25,7 +28,9 @@ const GAMES = [
 async function main() {
   console.log("🌱 Seeding 20 fyptest accounts...\n");
 
-  const passwordHash = await bcrypt.hash("Password123!", 10);
+  const password =
+    process.env.SEED_PASSWORD || crypto.randomBytes(12).toString("base64url");
+  const passwordHash = await bcrypt.hash(password, 10);
 
   // ── Create 20 users ───────────────────────────────────────────────────────
   const createdUsers = [];
@@ -137,7 +142,7 @@ async function main() {
   console.log(`\n📊 Summary:`);
   console.log(`   Matches created : ${matchCount}`);
   console.log(`   Payouts created : ${payoutCount}`);
-  console.log(`\n✅ Done! Login: fyptest1–fyptest20 / Password123!\n`);
+  console.log(`\n✅ Done! Login: fyptest1–fyptest20 / ${password}\n`);
 }
 
 main()
